@@ -1,0 +1,28 @@
+# Mini local-agent instances (no Docker).
+# One instance id per line. Comment with #.
+#
+# 12 multi-file Python bug-fix tasks shaped to resemble SWE-bench trajectories:
+# symptom-oriented issues (culprit not named), package layout that forces
+# exploration, on an easy -> medium -> hard difficulty ladder.
+#
+# The ladder is deliberate: a weak local model (Qwen3-8B) should resolve some and
+# fail others, giving mixed success/failure outcomes for trajectory analyses.
+# If the run comes back all-resolved or all-failed, trim from the opposite end.
+
+# easy (exploratory, single clear bug)
+mini_eventbus_001
+mini_pagination_002
+mini_textstats_003
+mini_fsm_004
+
+# medium (subtle logic; read two or more modules)
+mini_router_005
+mini_money_006
+mini_retry_007
+mini_confmerge_008
+
+# hard (multi-bug or easy-to-fix-wrong; weak models likely fail)
+mini_lru_009
+mini_graph_010
+mini_intervals_011
+mini_csv_012

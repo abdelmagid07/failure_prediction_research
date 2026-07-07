@@ -1,0 +1,18 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.cursor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Large generated artifacts (keep in reference/.gitignore too)
+**/data/activations/
+**/data/activations_proxy/
+**/data/trajectories/
+**/.env
+!.env.example

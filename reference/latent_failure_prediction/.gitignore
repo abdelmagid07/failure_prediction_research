@@ -1,0 +1,43 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Stage 1 generated artifacts (large; regenerate on GPU)
+stage1/data/activations/
+stage1/data/activations_proxy/
+stage1/data/*.npy
+stage1/data/icrl*.json
+stage1/data/wrong_hypotheses.json
+stage1/data/auroc_by_layer.*
+stage1/data/auroc_by_layer_proxy.*
+stage1/data/axis_manifest_proxy.json
+
+# Stage 2 generated artifacts
+stage2/data/trajectories/
+stage2/data/normalized/
+stage2/data/normalized_smoke/
+stage2/data/*.parquet
+stage2/data/smoke_report/
+stage2/data/mock_value_axis.npy
+stage2/data/analysis_report.json
+stage2/data/derisk_report.json
+stage2/data/snr_by_position.csv
+stage2/data/final_step_separation.png
+stage2/data/noise_by_token_type.png
+stage2/data/trajectories_manifest.json
+stage2/data/proxy_derisk_report/
+
+# IDE / OS
+.cursor/
+.DS_Store
+Thumbs.db

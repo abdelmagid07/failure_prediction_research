@@ -1,0 +1,7 @@
+# Generated data
+data/trajectories/
+data/normalized/
+data/normalized_smoke/
+data/smoke_report/
+*.parquet
+mock_value_axis.npy

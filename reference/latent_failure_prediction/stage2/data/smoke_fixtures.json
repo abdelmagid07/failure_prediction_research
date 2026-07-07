@@ -1,0 +1,9 @@
+{
+  "n_trajectories": 4,
+  "paths": [
+    "data\\normalized_smoke\\sample.json",
+    "data\\normalized_smoke\\mock_success_a.json",
+    "data\\normalized_smoke\\mock_failure_b.json",
+    "data\\normalized_smoke\\mock_success_c.json"
+  ]
+}

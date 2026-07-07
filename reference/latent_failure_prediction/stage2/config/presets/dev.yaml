@@ -1,0 +1,3 @@
+preset: dev
+axis_path: ../stage1/data/value_axis_proxy.npy
+axis_manifest_path: ../stage1/data/axis_manifest_proxy.json

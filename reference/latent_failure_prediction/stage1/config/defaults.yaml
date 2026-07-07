@@ -1,0 +1,12 @@
+model: Qwen/Qwen3-8B
+default_layer: 21
+gate_threshold: 0.93
+gate_layers: [21, 22]
+paper_targets:
+  21: 0.954
+  22: 0.947
+enable_thinking: false
+dtype: bfloat16
+split_seed: 42
+n_layers: 36  
+hidden_dim: 4096

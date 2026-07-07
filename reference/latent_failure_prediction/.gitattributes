@@ -1,0 +1,11 @@
+# Shell scripts must keep LF endings so they run under WSL2/Linux bash.
+# Without this, core.autocrlf=true on Windows checks them out with CRLF and
+# bash fails with "bad interpreter: ...^M".
+*.sh text eol=lf
+
+# Normalize other text to LF in the repo (checked out per-platform otherwise).
+*.py text
+*.yaml text
+*.yml text
+*.json text
+*.md text
