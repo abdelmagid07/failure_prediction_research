@@ -1,0 +1,160 @@
+\documentclass{article}
+
+\usepackage[preprint]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+
+\title{Latent Failure Prediction in Long-Horizon Language Agents}
+
+\author{%
+  Abdelmageed Abdelmagid \\
+  The Ohio State University \\
+  \texttt{abdelmagidd.29@gmail.com} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large Language Models (LLMs) are increasingly applied to long-horizon, multi-step tasks, where they fail in ways often detected only after the trajectory has concluded. Recent work shows that LLMs linearly encode a value axis, a single direction in the residual stream that measures whether the model believes it is on the right track, but only in short-horizon, single-turn settings. Whether this signal persists and continues to track eventual success or failure across a long agentic trajectory is unknown. We investigate whether the value axis transfers from the single-turn regime to the long-horizon agentic one. We first reconstruct and verify the axis in its original setting, confirming our reconstruction matches the reported held-out separation. We then freeze that axis and project it onto coding-agent trajectories (SWE-bench), testing whether it still separates eventually-successful from eventually-failed runs as a function of trajectory position. To anchor the internal signal against an explicit prediction, we also elicit, at each step, the agent's own estimate of its probability of eventual success, and compare both the projection and this estimate against the ground-truth outcome. A clean transfer establishes that the signal persists into the agentic regime; a partial one lets us characterize where it degrades; and no transfer scopes the original value-axis result. This is the first direct test of whether the value axis survives the transition to long-horizon agentic settings, a prerequisite for any later use of internal value signals for monitoring or early intervention.
+\end{abstract}
+
+\section{Introduction}
+
+LLM agents have demonstrated increasing competence at long-horizon tasks that unfold over many sequential steps, searching for evidence, invoking tools, and synthesizing final answers (Yao et al., 2023, \url{https://arxiv.org/abs/2210.03629}). As these tasks grow longer, failures become harder to attribute to any single moment and harder to detect before the trajectory concludes.
+
+This leaves an open question: does the agent itself, internally, carry any representation of how the task is going before the outcome is externally visible? Recent work has shown that LLMs do encode an estimate of whether their current strategy is likely to achieve their goal, constructing a value axis and showing that it causally modulates confidence and self-correction behavior (Jiang et al., 2026, \url{https://arxiv.org/abs/2606.17056}). If a comparable signal exists in long-horizon agents, it could be read out before the outcome is observable externally.
+
+The value axis was constructed and validated exclusively in short-horizon, single-turn settings, namely AIME math questions, LeetCode problems, and individual chat prompts. Long-horizon agentic trajectories are different: they involve many rounds of tool use, retrieval, and planning, and whether the value representation survives that shift is unknown. Before an internal value signal can be used to monitor or steer an agent, we first have to establish that it is present. Through this research, we seek to answer the question:
+
+\textit{Does the value axis persist, remain identifiable, and track eventual success or failure in long-horizon agentic trajectories?}
+
+We treat this as a transfer test: we take a known signal with published evidence and ask whether it survives a change of regime. The design does not depend on a positive result, as all three outcomes are useful information:
+
+\begin{itemize}
+\item \textbf{Clean transfer.} The value axis separates eventually-successful from eventually-failed agentic trajectories, establishing that the single-turn value signal persists into the long-horizon regime.
+\item \textbf{Partial transfer.} The axis separates outcomes weakly, or only late in a trajectory, or only at particular layers, letting us characterize where and when the signal degrades.
+\item \textbf{No transfer.} The axis fails to separate outcomes in the agentic setting, bounding where the method applies and scoping the original result.
+\end{itemize}
+
+Throughout, we measure outcomes as a function of trajectory position and, as a baseline, compare the internal signal against the agent's own estimate of its probability of success.
+
+\section{Related Work}
+
+We present work on: (1) value-like and sequential representations in LLMs, (2) interpretability of agentic decision-making, and (3) confidence, calibration, and failure in long-horizon agents.
+
+\subsection{Value-Like and Sequential Representations in LLMs}
+
+Mechanistic interpretability research has shown that internal LLM activations can encode quantities analogous to those found in reinforcement learning (RL). Recent work applying sparse autoencoders (SAEs) to Llama 3 70B performing simple in-context RL tasks found that the model's residual stream encodes representations that are causally implicated in the model's choices under targeted intervention (Demircan et al., 2024, \url{https://arxiv.org/abs/2410.01280}).
+
+Building on this, recent work constructs the value axis and shows that it distinguishes high from low verbalized confidence, and correct from corrupted code, while self-correcting when steered (Jiang et al., 2026, \url{https://arxiv.org/abs/2606.17056}). The value signal is thus not only present but linearly accessible and causal, with the strongest and most generalizable separation reported in the middle-to-late layers. Their analysis, however, is confined to short-horizon, single-turn settings, leaving open whether the same representation holds up over long agentic trajectories.
+
+\subsection{Interpretability of Agentic Decision-Making}
+
+A growing line of work probes internal representations for predictive signals about agentic decisions. Recent work trains linear probes on internal LLM representations to predict individual tool-use decisions, including whether a tool call is imminent and whether the next action is consequential, finding that sparse features carry a reliable predictive signal before the decision is externally visible (Tatsat et al., 2026, \url{https://arxiv.org/abs/2605.06890}).
+
+Their work, however, is scoped to single, local decisions, such as whether to call a tool at the current step, rather than the trajectory-level question of eventual success or failure. We extend this style of analysis from local decisions to a global, trajectory-level outcome, tracking not just whether such a signal exists but how it develops across a trajectory.
+
+\subsection{Confidence, Calibration, and Failure in Long-Horizon Agents}
+
+More work studies agent reliability from the outside, looking at expressed confidence and observed behavior, introducing the problem that a critical breakdown at an intermediate step can be masked by a confidently stated final answer (Zhang et al., 2026, \url{https://arxiv.org/abs/2601.15778}). Measurements of goal drift show that an agent's outputs tend to deviate from the original objective as context accumulates over long interactions (Arike et al., 2025, \url{https://arxiv.org/abs/2505.02709}). These approaches are valuable but operate at the level of outputs and verbalized confidence; they do not examine whether the model internally represents its trajectory's eventual outcome.
+
+Recent work also decodes an internal ``solvability belief'' as a linear direction and reports that it generalizes across math, code, planning, and logic tasks (Sanyal et al., 2026, \url{https://arxiv.org/abs/2510.24772}). This is the nearest internal-representation analogue to our question, but it is scoped to single-turn, pre-generative assessment rather than a signal evolving across a long agentic trajectory. Whether such a signal survives over many sequential steps is exactly what remains untested, and is where we position our work.
+
+\subsection{Bridging the Gap}
+
+Collectively, prior work shows that LLMs linearly encode a causal value signal in single-turn settings, that local agentic decisions are decodable from internal state, and that agent reliability can be characterized behaviorally over long horizons. What remains untested is whether the value signal itself survives the move into long-horizon trajectories: whether it persists, separates eventual outcomes, and does so early enough to matter.
+
+\section{Methods}
+
+\subsection{Overview}
+
+Our approach proceeds in four stages: (1) reconstruct the value axis in its original single-turn setting and verify that our reconstruction reproduces the reported separation, (2) freeze that axis, project it onto the final step of long-horizon agentic trajectories, and test whether it separates eventual success from failure, (3) trace the projection across the full trajectory and compare it against the agent's own step-wise estimate of eventual success, both evaluated against the ground-truth outcome, and (4) localize the layers that carry the signal. Every quantity is measured as a function of trajectory position, expressed as a fraction of total trajectory length rather than an absolute step index, so that trajectories of differing lengths compare on a common axis. Because we test whether a known signal transfers rather than searching for a new one, a null result at any stage is itself informative.
+
+\subsection{Stage 1: Reconstructing and Verifying the Value Axis}
+
+Before testing transfer, we reconstruct the value axis in the single-turn setting where it was originally established, following the construction of Jiang et al. (2026) on Qwen3-8B using their publicly released code and in-context RL data. Because that code and its reproduction steps are public, this stage is a verification step rather than a research contribution: we confirm that our reconstructed axis reproduces the reported held-out separation between on-track and off-track states, with the strongest separation expected in the middle-to-late layers. Once verified, the axis is frozen, and the question becomes whether the original representation transfers to long-horizon settings.
+
+\subsection{Stage 2: Final-Step Transfer}
+
+With the axis frozen, we test transfer first at the final step of a trajectory, where the eventual outcome is least ambiguous and any value signal should be strongest. For each trajectory, we record the model's activations and label it by its eventual outcome, determined for coding tasks by test suite pass rate. To keep the projection well defined, we extract activations at the same layer or layers as the verified axis and at a fixed token position per step, the final token of the agent's own output at that step, where the model has integrated everything it has seen. Because the value axis was built on single-turn prompts whereas an agentic step interleaves instructions, tool outputs, and code, this position convention is an explicit assumption: we test whether a direction defined on single-turn activations remains meaningful when read at the analogous point of a multi-turn step. We then measure the value-axis projection of a step as how strongly its activations align with the frozen direction, a single number that is high when the internal state resembles an on-track trajectory and low otherwise. The first question is whether the projection at the final step alone separates eventually-successful from eventually-failed runs, reported as an AUROC against a majority-class baseline. We begin here because it is the most favorable case for the signal: a failure to separate outcomes here is strong evidence against transfer, though not proof that no signal exists earlier.
+
+\subsection{Stage 3: Trajectory Evolution and an Explicit Prediction Baseline}
+
+Given a final-step signal, we trace its development by following the value-axis projection across the full trajectory. We bin projections by relative position and compare the average projection of eventually-successful runs against that of eventually-failed runs as a function of position. The question guiding this stage is at what relative position the two curves separate, and how strongly the projection at each position predicts the eventual outcome.
+
+To interpret the internal signal, we pair it with an explicit prediction baseline measured on the same trajectories. At each step, we elicit the agent's own estimate of its probability of eventually solving the task, a single number in $[0, 1]$ obtained by prompting it directly, and optionally elicit the same estimate from a separate LLM judge given the trajectory so far. We then evaluate the internal projection and these elicited estimates against the same target: the ground-truth SWE-bench outcome. This lets us compare, at each position, how well the internal signal and the agent's own report each predict the outcome.
+
+\subsection{Stage 4: Localizing the Signal}
+
+Where transfer is detected, we localize it via two complementary analyses: layer-wise projection, computing separation at each layer to identify which depths carry the strongest and most generalizable signal, and in particular whether transfer is strongest at the same middle-to-late layers reported for the single-turn setting or whether it shifts; and held-out generalization, measuring whether the separation holds on trajectories held out from layer selection, confirming it reflects a general notion of value rather than an artifact of the specific runs examined. Questions guiding this stage include: do the layers that carried the signal in the single-turn regime remain the informative ones after transfer, and is the signal localized to a narrow band of layers or distributed broadly across the network?
+
+\section{Datasets and Evaluation}
+
+\subsection{Datasets}
+
+Our primary evaluation uses SWE-bench, whose trajectories average roughly twelve to fifteen steps and thus match the long-horizon regime our hypothesis requires, while providing clear, automatically verifiable success labels via test suites. We generate the trajectories with Qwen3-8B itself in a standard agent scaffold.
+
+\subsection{Models}
+
+We select Qwen3-8B, both because it is a strong open-weight model for the multi-step coding tasks central to our primary benchmark, and because the value axis our methodology builds on was originally constructed and validated on this exact model (Jiang et al., 2026).
+
+\subsection{Evaluation Metrics}
+
+We report:
+
+\begin{itemize}
+\item \textbf{Reconstruction Fidelity (AUROC):} The separation of our reconstructed axis in the original single-turn setting, confirming the axis is faithfully reconstructed before transfer is tested.
+\item \textbf{Projection Separation Curve:} The value-axis projection of eventually-successful versus eventually-failed trajectories as a function of relative trajectory position, the primary measure of whether and how early the signal transfers.
+\item \textbf{Transfer Separation (AUROC):} The degree to which the frozen value axis separates held-out agentic trajectories by outcome, reported at the final step and at each relative position against a majority-class baseline.
+\item \textbf{Internal versus Elicited Prediction:} The outcome-prediction AUROC of the internal value-axis projection and of the agent's elicited probability of eventual success, evaluated at each relative position against the ground-truth task outcome.
+\end{itemize}
+
+\section{Potential Limitations and Risk Mitigation}
+
+\subsection{Limitations}
+
+\textbf{No Transfer Possibility:} A no-transfer result constrains the scope of the value axis but does not exactly explain why it fails to transfer.
+
+\textbf{Generalization across domains:} Patterns identified in a coding setting may not transfer to other agentic domains such as web navigation, where failure looks different than software engineering. 
+
+\textbf{Sample Size:} Qwen3-8B's pass rate on SWE-bench is low, which may leave substantially fewer successful trajectories than failed ones.
+
+\subsection{Risk Mitigation}
+
+\textbf{No Transfer Possibility:} If a transfer is not observed, we report where the signal breaks down by analyzing trajectory position and per-layer prediction. This allows us to distinguish a complete absence of transfer from inaccuracies at specific stages.
+
+\textbf{Generalization across domains:} Treat SWE-bench as our primary domain, and we don't claim beyond it. Any secondary domain, if time allows, is treated as a generalization check.
+
+\textbf{Sample Size:} We report variance across trajectories explicitly and bin by relative position so that each run contributes signal across many positions rather than only a few. We evaluate separation using AUROC, which is less sensitive to imbalance, and we expand the trajectory set if the number of successful runs proves to not be enough.
+
+\section*{References}
+
+{\small
+
+[1] Jiang, N., Kauvar, I., \& Lindsey, J. (2026). The Value Axis: Language Models Encode Whether They're on the Right Track. \url{https://arxiv.org/abs/2606.17056}
+
+[2] Demircan, C., et al. (2024). Sparse Autoencoders Reveal Temporal Difference Learning in a Large Language Model. \url{https://arxiv.org/abs/2410.01280}
+
+[3] Tatsat, H., et al. (2026). Beyond the Black Box: Interpretability of Agentic AI Tool Use. \url{https://arxiv.org/abs/2605.06890}
+
+[4] Zhang, J., Xiong, C., \& Wu, C.-S. (2026). Agentic Confidence Calibration. \url{https://arxiv.org/abs/2601.15778}
+
+[5] Sanyal, D., et al. (2026). Confidence is Not Competence. \url{https://arxiv.org/abs/2510.24772}
+
+[6] Arike, et al. (2025). Technical Report: Evaluating Goal Drift in Language Model Agents. \url{https://arxiv.org/abs/2505.02709}
+
+[7] Yao, S., et al. (2023). ReAct: Synergizing Reasoning and Acting in Language Models. \url{https://arxiv.org/abs/2210.03629}
+
+}
+
+\end{document}
