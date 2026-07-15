@@ -1,0 +1,10 @@
+data/activations/
+data/*.npy
+data/*.json
+!data/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+build/

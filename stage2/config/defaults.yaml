@@ -1,0 +1,10 @@
+model: Qwen/Qwen3-8B
+layer: 21
+axis_path: ../stage1/data/value_axis.npy
+axis_manifest_path: ../stage1/data/axis_manifest.json
+enable_thinking: false
+dtype: bfloat16
+n_layers: 36
+hidden_dim: 4096
+n_bins: 5
+max_observations_in_context: 5

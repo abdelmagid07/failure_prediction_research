@@ -1,0 +1,9 @@
+preset: dev
+gate_threshold: 0.75
+gate_layers: [21, 22]
+axis_output: value_axis_proxy.npy
+manifest_output: axis_manifest_proxy.json
+auroc_output: auroc_by_layer_proxy.json
+plot_output: auroc_by_layer_proxy.png
+activations_subdir: activations_proxy
+icrl_default: icrl_proxy.json

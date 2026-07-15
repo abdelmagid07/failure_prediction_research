@@ -1,0 +1,76 @@
+{
+  "trajectory_id": "sample",
+  "outcome": 1,
+  "n_steps": 3,
+  "steps": [
+    {
+      "step_index": 0,
+      "messages_before_gen": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant that can interact with a computer to solve tasks."
+        },
+        {
+          "role": "user",
+          "content": "We're solving the following issue:\n\nISSUE:\nFix failing unit test in parser module.\n"
+        }
+      ],
+      "assistant_response": "I'll start by listing the repository contents to understand the layout.\n```\nls -F\n```",
+      "observation": "README.md\nsrc/\ntests/\n"
+    },
+    {
+      "step_index": 1,
+      "messages_before_gen": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant that can interact with a computer to solve tasks."
+        },
+        {
+          "role": "user",
+          "content": "We're solving the following issue:\n\nISSUE:\nFix failing unit test in parser module.\n"
+        },
+        {
+          "role": "assistant",
+          "content": "I'll start by listing the repository contents to understand the layout.\n```\nls -F\n```"
+        },
+        {
+          "role": "user",
+          "content": "OBSERVATION:\nREADME.md\nsrc/\ntests/\n"
+        }
+      ],
+      "assistant_response": "The tests directory likely contains the failing test. Let me inspect it.\n```\ntest -d tests && ls tests\n```",
+      "observation": "test_parser.py\ntest_utils.py\n"
+    },
+    {
+      "step_index": 2,
+      "messages_before_gen": [
+        {
+          "role": "system",
+          "content": "You are a helpful assistant that can interact with a computer to solve tasks."
+        },
+        {
+          "role": "user",
+          "content": "We're solving the following issue:\n\nISSUE:\nFix failing unit test in parser module.\n"
+        },
+        {
+          "role": "assistant",
+          "content": "I'll start by listing the repository contents to understand the layout.\n```\nls -F\n```"
+        },
+        {
+          "role": "user",
+          "content": "OBSERVATION:\nREADME.md\nsrc/\ntests/\n"
+        },
+        {
+          "role": "assistant",
+          "content": "The tests directory likely contains the failing test. Let me inspect it.\n```\ntest -d tests && ls tests\n```"
+        },
+        {
+          "role": "user",
+          "content": "OBSERVATION:\ntest_parser.py\ntest_utils.py\n"
+        }
+      ],
+      "assistant_response": "I'll open test_parser.py and apply a minimal fix.\n```\nsed -i 's/parse_int/parse_integer/' tests/test_parser.py\n```",
+      "observation": ""
+    }
+  ]
+}
