@@ -27,6 +27,12 @@ from stage2.trajectories.schema import save_trajectory
 _RESOLVED_KEYS = ("resolved_ids", "resolved", "resolved_instances")
 _UNRESOLVED_KEYS = ("unresolved_ids", "unresolved", "unresolved_instances")
 
+# Trajectory exit statuses that mean the run crashed (transport/API error), not
+# that the model tried and failed the task. These are stubs (typically 1 step,
+# response "Run failed: ...") and must not be labeled as genuine failures, or
+# they poison the outcome labels. See run_batch.py's exception handler.
+_ERROR_STATUSES = frozenset({"error"})
+
 
 def _first_present(payload: dict, keys: tuple[str, ...]) -> tuple[set[str], bool]:
     """Return (ids, key_was_present) for the first matching key."""
@@ -64,6 +70,8 @@ def ingest_batch(
     *,
     results_path: Path | None = None,
     output_dir: Path = NORMALIZED_DIR,
+    error_statuses: frozenset[str] = _ERROR_STATUSES,
+    keep_error_stubs: bool = False,
 ) -> dict:
     traj_dir = Path(traj_dir)
     if not traj_dir.exists():
@@ -88,13 +96,27 @@ def ingest_batch(
 
     written: list[dict] = []
     skipped: list[str] = []
+    excluded_errors: list[dict] = []
     n_success = 0
     n_failure = 0
 
     for traj_path in traj_files:
-        # Peek at the instance id to resolve its label before a full parse.
+        # Peek at info to resolve label and exit status before a full parse.
         info = json.loads(traj_path.read_text(encoding="utf-8")).get("info", {}) or {}
         instance_id = str(info.get("instance_id") or traj_path.stem)
+
+        exit_status = str(info.get("exit_status", ""))
+        if not keep_error_stubs and exit_status in error_statuses:
+            # Crashed run, not a real task failure: drop before labeling.
+            print(
+                f"  EXCLUDE {instance_id}: run error "
+                f"(exit_status={exit_status!r}), not a task failure",
+                flush=True,
+            )
+            excluded_errors.append(
+                {"trajectory_id": instance_id, "exit_status": exit_status}
+            )
+            continue
 
         if instance_id in labels:
             outcome = labels[instance_id]
@@ -133,7 +155,9 @@ def ingest_batch(
         "n_success": n_success,
         "n_failure": n_failure,
         "n_skipped": len(skipped),
+        "n_excluded_errors": len(excluded_errors),
         "skipped": skipped,
+        "excluded_errors": excluded_errors,
         "trajectories": written,
     }
     manifest_path = output_dir / "ingest_manifest.json"
@@ -141,7 +165,8 @@ def ingest_batch(
 
     print(
         f"\nIngested {len(written)} trajectories "
-        f"(N_success={n_success}, N_failure={n_failure}, skipped={len(skipped)}) "
+        f"(N_success={n_success}, N_failure={n_failure}, "
+        f"skipped={len(skipped)}, excluded_errors={len(excluded_errors)}) "
         f"-> {output_dir}",
         flush=True,
     )
@@ -178,11 +203,26 @@ def main():
         default=NORMALIZED_DIR,
         help="Where to write normalized trajectory JSON (default: data/normalized)",
     )
+    ap.add_argument(
+        "--error-statuses",
+        nargs="+",
+        default=list(_ERROR_STATUSES),
+        help="Trajectory exit_status values to exclude as crashed runs "
+        "(default: error). Inspect real .traj info blocks and extend as needed.",
+    )
+    ap.add_argument(
+        "--keep-error-stubs",
+        action="store_true",
+        help="Ingest crashed-run stubs instead of excluding them (not recommended: "
+        "they corrupt the outcome labels)",
+    )
     args = ap.parse_args()
     ingest_batch(
         args.traj_dir,
         results_path=args.results,
         output_dir=args.output_dir,
+        error_statuses=frozenset(args.error_statuses),
+        keep_error_stubs=args.keep_error_stubs,
     )
 
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +29,58 @@ def rel_pos(step_index: int, n_steps: int) -> float:
     if n_steps <= 1:
         return 0.0
     return step_index / (n_steps - 1)
+
+
+_THINK_RE = re.compile(r"<think>", re.IGNORECASE)
+
+
+def trajectory_uses_thinking(records: list[TrajectoryRecord]) -> bool:
+    """Detect whether the trajectories were generated with thinking mode ON.
+
+    Qwen3 emits an explicit ``<think>`` block when generating with thinking
+    enabled. If any recorded assistant turn contains one, generation was
+    thinking-on. We check both the per-step ``assistant_response`` and the
+    assistant messages carried in ``messages_before_gen``.
+    """
+    for rec in records:
+        for step in rec.steps:
+            if _THINK_RE.search(step.assistant_response or ""):
+                return True
+            for msg in step.messages_before_gen:
+                if msg.get("role") == "assistant" and _THINK_RE.search(
+                    msg.get("content", "") or ""
+                ):
+                    return True
+    return False
+
+
+def assert_thinking_mode_matches(
+    records: list[TrajectoryRecord], enable_thinking: bool
+) -> None:
+    """Fail loudly on a generation/projection thinking-mode mismatch.
+
+    The projection replays each recorded turn through the chat template and reads
+    the activation at its last token. If the template's thinking mode differs from
+    the mode the trajectory was *generated* under, the tokenization (and thus the
+    activation we read) no longer corresponds to what the model actually computed.
+    That silently corrupts every projection, so we refuse to proceed.
+    """
+    generated_with_thinking = trajectory_uses_thinking(records)
+    if generated_with_thinking and not enable_thinking:
+        raise SystemExit(
+            "Thinking-mode mismatch: trajectories contain <think> blocks (generated "
+            "with thinking ON) but projection is running with thinking OFF. Re-run "
+            "with --enable-thinking so the chat template matches how the model "
+            "actually generated. (Or regenerate trajectories thinking-off: serve "
+            "vLLM with --chat-template-kwargs '{\"enable_thinking\": false}'.)"
+        )
+    if enable_thinking and not generated_with_thinking:
+        print(
+            "  WARNING: --enable-thinking is set but no <think> blocks were found in "
+            "the trajectories. If they were generated thinking-off, drop "
+            "--enable-thinking so the template matches.",
+            flush=True,
+        )
 
 
 def _encode_template(tokenizer, messages, enable_thinking: bool):
@@ -158,10 +211,14 @@ def run(
     dtype: str,
     n_layers: int,
     output_path: Path,
+    check_thinking: bool = True,
 ) -> pd.DataFrame:
     records = load_trajectories_from_dir(traj_dir)
     if not records:
         raise FileNotFoundError(f"No normalized trajectories in {traj_dir}")
+
+    if check_thinking:
+        assert_thinking_mode_matches(records, enable_thinking)
 
     direction = load_axis_direction(axis_path, layer=layer)
 
@@ -225,6 +282,11 @@ def main():
     ap.add_argument("--n-layers", type=int, default=defaults["n_layers"])
     ap.add_argument("--enable-thinking", action="store_true")
     ap.add_argument(
+        "--no-thinking-check",
+        action="store_true",
+        help="Bypass the generation/projection thinking-mode consistency check",
+    )
+    ap.add_argument(
         "--mock-axis",
         action="store_true",
         help="Use random unit axis (smoke test only)",
@@ -252,6 +314,7 @@ def main():
         dtype=args.dtype,
         n_layers=args.n_layers,
         output_path=args.output,
+        check_thinking=not args.no_thinking_check,
     )
 
 

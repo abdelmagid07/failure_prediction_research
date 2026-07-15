@@ -44,6 +44,13 @@ def _chat_completion(
         "model": cfg.model,
         "messages": messages,
         "temperature": cfg.temperature,
+        # Pin thinking mode OFF at generation time so the recorded trajectory
+        # matches how project_steps.py replays it (enable_thinking=False by
+        # default). Without this, the server's default template could generate
+        # with <think> blocks while projection reads it thinking-off, misaligning
+        # the activations with what the model actually computed. vLLM's
+        # OpenAI-compatible endpoint honors chat_template_kwargs.
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
