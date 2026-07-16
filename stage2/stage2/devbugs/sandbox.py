@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from stage2.mini.catalog import MiniInstance
+from stage2.devbugs.catalog import MiniInstance
 
 
 def materialize_repo(instance: MiniInstance, work_root: Path) -> Path:

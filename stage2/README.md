@@ -26,24 +26,28 @@ See [docs/analyses.md](../docs/analyses.md) for output interpretation.
 
 ## Environments
 
-### Mini-agent (no Docker)
+### Devbugs harness (no Docker)
 
-Colab: [notebooks/mini_agent_colab.ipynb](notebooks/mini_agent_colab.ipynb) + [serve_qwen_colab.ipynb](notebooks/serve_qwen_colab.ipynb).
+Colab: [notebooks/devbugs_agent_colab.ipynb](notebooks/devbugs_agent_colab.ipynb) + [serve_qwen_colab.ipynb](notebooks/serve_qwen_colab.ipynb).
 
 ```bash
-bash scripts/run_mini_batch.sh
+bash scripts/run_devbugs_batch.sh
 ```
 
-12 hand-written Python bug-fix tasks; SWE-agent-compatible `.traj` output.
+12 hand-written Python bug-fix tasks; SWE-agent-compatible `.traj` output. This
+is the project's own dev/smoke harness — unrelated to the third-party
+`mini-swe-agent` used for real runs below.
 
-### SWE-bench
+### SWE-bench (primary: mini-swe-agent)
 
 ```bash
 export MODEL_API_BASE="https://<tunnel>/v1"
-bash scripts/run_pilot_batch.sh config/pilot_instances.txt
+bash scripts/run_mini_swe_batch.sh config/pilot_instances.txt
 ```
 
-Requires Docker. Qwen inference via remote vLLM tunnel.
+Requires Docker. Qwen inference via remote vLLM tunnel. Ingest with
+`--format mini-swe-agent`. The legacy SWE-agent path (`run_pilot_batch.sh` +
+`swe_agent_qwen.yaml`) is kept only until this path is verified end to end.
 
 ## Colab projection
 
@@ -64,8 +68,8 @@ stage2/
     trajectories/   parse .traj, ingest
     extract/        project_steps, token_spans
     analyze/        SNR, final-step, token-type noise
-    mini/           local agent environment
+    devbugs/        local dev bug-fix harness (no Docker)
   notebooks/
-  scripts/          run_mini_batch.sh, run_pilot_batch.sh
+  scripts/          run_mini_swe_batch.sh (primary), run_devbugs_batch.sh, run_pilot_batch.sh (legacy)
   tests/fixtures/
 ```

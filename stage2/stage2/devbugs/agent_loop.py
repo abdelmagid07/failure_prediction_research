@@ -8,10 +8,10 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from stage2.mini.catalog import MiniInstance
-from stage2.mini.evaluate import evaluate_instance
-from stage2.mini.parse_action import format_assistant_response, parse_thought_action
-from stage2.mini.sandbox import materialize_repo, run_command
+from stage2.devbugs.catalog import MiniInstance
+from stage2.devbugs.evaluate import evaluate_instance
+from stage2.devbugs.parse_action import format_assistant_response, parse_thought_action
+from stage2.devbugs.sandbox import materialize_repo, run_command
 
 SYSTEM_PROMPT = (
     "You are a helpful assistant that can interact with a computer to solve tasks.\n"

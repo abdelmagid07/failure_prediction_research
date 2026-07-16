@@ -1,5 +1,9 @@
 # Setup
 
+> Quick reference. For the full hands-on walkthrough (compute topology, running
+> the pipeline end to end, troubleshooting), see [onboarding.md](onboarding.md).
+> New to the project? Start at [HANDOFF.md](../HANDOFF.md).
+
 ## Requirements
 
 - Python 3.11+
@@ -11,7 +15,8 @@
 ```bash
 pip install -e stage1
 pip install -e stage2
-pip install -e "stage2[mini]"   # optional: mini-agent environment
+pip install -e "stage2[devbugs]"   # optional: local dev bug-fix harness (no Docker)
+pip install -e "stage2[swe]"       # optional: mini-swe-agent + swebench harness (real runs)
 ```
 
 ## Colab notebooks
@@ -20,7 +25,7 @@ pip install -e "stage2[mini]"   # optional: mini-agent environment
 |----------|---------|---------|
 | `stage1/notebooks/stage1_gpu_colab.ipynb` | A100 | ICRL extract + axis gate |
 | `stage2/notebooks/serve_qwen_colab.ipynb` | A100 | vLLM + tunnel for agent inference |
-| `stage2/notebooks/mini_agent_colab.ipynb` | CPU | Mini-agent batch + ingest |
+| `stage2/notebooks/devbugs_agent_colab.ipynb` | CPU | Devbugs-agent batch + ingest |
 | `stage2/notebooks/project_and_analyze_colab.ipynb` | A100 | Projection + analyses |
 
 Open via: `https://colab.research.google.com/github/abdelmagid07/latent_failiure_prediction/blob/main/<path>`
@@ -33,9 +38,9 @@ Set `enable_thinking=False` in the chat template to match activation extraction.
 
 ## Trajectory environments
 
-**Mini-agent** (`stage2/mini/`): hand-written bug-fix tasks, no Docker. Output is SWE-agent-compatible `.traj` JSON.
+**Devbugs harness** (`stage2/devbugs/`): hand-written bug-fix tasks, no Docker. Output is SWE-agent-compatible `.traj` JSON.
 
-**SWE-bench** (`scripts/run_pilot_batch.sh`): SWE-agent + Docker locally, Qwen inference via vLLM tunnel.
+**SWE-bench** (`scripts/run_mini_swe_batch.sh`): mini-swe-agent + Docker locally, Qwen inference via vLLM tunnel. Ingest with `--format mini-swe-agent`. (Legacy `run_pilot_batch.sh` / SWE-agent kept until the mini path is verified.)
 
 ## Offline wiring tests
 

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# LEGACY path. Superseded by scripts/run_mini_swe_batch.sh (mini-swe-agent),
+# which is the primary generator for paper data and handles thinking-off cleanly.
+# Kept only until the mini-swe-agent path is verified end to end. Note: the
+# `pip install sweagent` hint below refers to SWE-agent 1.x, which is git-only
+# (PyPI `sweagent` is stuck at 0.0.1); the `.[swe]` extra now installs
+# mini-swe-agent, not SWE-agent.
+#
 # Run a SWE-bench Lite pilot batch with SWE-agent locally (Docker/WSL2) while
 # Qwen3-8B inference runs on a REMOTE GPU (e.g. Colab A100) behind an
 # OpenAI-compatible endpoint.

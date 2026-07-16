@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-"""Run the mini local-agent batch (no Docker) against a remote OpenAI-compatible model."""
+"""Run the devbugs local-agent batch (no Docker) against a remote OpenAI-compatible model.
+
+This is the project's own lightweight, hand-written bug-fix harness used for
+smoke tests and offline development. It is unrelated to the third-party
+``mini-swe-agent`` used for real SWE-bench runs (see ``config/mini_swe_qwen.yaml``).
+"""
 
 from __future__ import annotations
 
@@ -10,9 +15,9 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from stage2.mini.agent_loop import AgentConfig, run_instance
-from stage2.mini.catalog import get_instance, list_instance_ids, load_instance_ids_from_file
-from stage2.mini.evaluate import write_results_json
+from stage2.devbugs.agent_loop import AgentConfig, run_instance
+from stage2.devbugs.catalog import get_instance, list_instance_ids, load_instance_ids_from_file
+from stage2.devbugs.evaluate import write_results_json
 
 
 def preflight_api(cfg: AgentConfig) -> None:
@@ -56,7 +61,7 @@ def run_batch(
     outcomes: dict[str, bool] = {}
     summary_rows: list[dict] = []
 
-    print(f"Running {len(instance_ids)} mini instances -> {output_dir}", flush=True)
+    print(f"Running {len(instance_ids)} devbugs instances -> {output_dir}", flush=True)
     print(f"Model: {cfg.model} @ {cfg.api_base}", flush=True)
 
     for iid in instance_ids:
@@ -117,7 +122,7 @@ def run_batch(
     write_results_json(outcomes, results_path)
 
     manifest = {
-        "track": "mini_local",
+        "track": "devbugs_local",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "model": cfg.model,
         "api_base": cfg.api_base,
@@ -145,7 +150,7 @@ def main():
     ap.add_argument(
         "--instances",
         type=Path,
-        default=Path("config/mini_instances.txt"),
+        default=Path("config/devbugs_instances.txt"),
         help="Text file with one instance id per line",
     )
     ap.add_argument(
@@ -158,7 +163,7 @@ def main():
         "--output-dir",
         type=Path,
         default=None,
-        help="Where to write .traj files (default: data/trajectories/mini_run_<timestamp>)",
+        help="Where to write .traj files (default: data/trajectories/devbugs_run_<timestamp>)",
     )
     ap.add_argument(
         "--api-base",
@@ -199,7 +204,7 @@ def main():
         raise SystemExit(f"Unknown instance ids: {unknown}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = args.output_dir or Path(f"data/trajectories/mini_run_{timestamp}")
+    output_dir = args.output_dir or Path(f"data/trajectories/devbugs_run_{timestamp}")
 
     cfg = AgentConfig(
         api_base=api_base,

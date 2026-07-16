@@ -5,9 +5,9 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from stage2.mini.catalog import MINI_INSTANCES, list_instance_ids
-from stage2.mini.evaluate import evaluate_instance
-from stage2.mini.sandbox import materialize_repo
+from stage2.devbugs.catalog import MINI_INSTANCES, list_instance_ids
+from stage2.devbugs.evaluate import evaluate_instance
+from stage2.devbugs.sandbox import materialize_repo
 
 
 def test_catalog_has_instances():

@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from stage2.mini.catalog import MiniInstance
-from stage2.mini.sandbox import run_command
+from stage2.devbugs.catalog import MiniInstance
+from stage2.devbugs.sandbox import run_command
 
 
 def evaluate_instance(instance: MiniInstance, repo_dir: Path) -> bool:

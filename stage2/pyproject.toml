@@ -16,8 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-swe = ["sweagent>=1.0.0"]
-mini = ["pytest>=7.0.0"]
+# Real SWE-bench runs: the third-party mini-swe-agent drives the model, and the
+# swebench harness turns its predictions into resolved/unresolved labels.
+swe = ["mini-swe-agent>=1.0.0", "swebench>=2.0.0"]
+# Local no-Docker dev harness (stage2/devbugs), used for offline smoke tests.
+devbugs = ["pytest>=7.0.0"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

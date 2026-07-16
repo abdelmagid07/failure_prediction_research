@@ -1,4 +1,10 @@
-# SWE-agent config for on-policy Qwen3-8B via an OpenAI-compatible API.
+# LEGACY — SWE-agent config for on-policy Qwen3-8B via an OpenAI-compatible API.
+#
+# Superseded by the mini-swe-agent path (config/mini_swe_qwen.yaml +
+# scripts/run_mini_swe_batch.sh), which is the primary generator for paper data.
+# This file is kept only until that path is verified end to end. In particular,
+# thinking-OFF is handled cleanly there via model_kwargs.extra_body; see the
+# note below for why it cannot be handled at the vLLM server flag level here.
 #
 # Intended topology (see scripts/run_pilot_batch.sh and notebooks/serve_qwen_colab.ipynb):
 #   - SWE-agent + Docker run LOCALLY (WSL2); only Docker/test execution is local.
@@ -11,8 +17,16 @@
 #
 # Remote server side (on the A100):
 #   vllm serve Qwen/Qwen3-8B --dtype bfloat16 --max-model-len 32768 \
-#     --served-model-name Qwen3-8B \
-#     --chat-template-kwargs '{"enable_thinking": false}'
+#     --served-model-name Qwen3-8B
+#
+# THINKING-OFF CAVEAT (deferred TODO for this legacy path): there is no working
+# server-flag way to force thinking off on the pinned vllm==0.11.0 — the flag is
+# --default-chat-template-kwargs '{"enable_thinking": false}' and it landed
+# AFTER 0.11.0, so adding it breaks server boot. SWE-agent does not expose a
+# per-request chat_template_kwargs override in its litellm config the way
+# mini-swe-agent does via model_kwargs.extra_body. So on this path thinking-off
+# would need a vLLM bump or the Qwen `/no_think` soft-switch. The mini-swe-agent
+# path avoids all of this; prefer it.
 
 agent:
   model:
