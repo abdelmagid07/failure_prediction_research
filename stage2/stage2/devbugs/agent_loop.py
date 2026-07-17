@@ -38,19 +38,24 @@ class AgentConfig:
 def _chat_completion(
     cfg: AgentConfig,
     messages: list[dict[str, str]],
-) -> str:
+) -> tuple[str, str]:
+    """Return ``(content, reasoning_content)`` for one completion.
+
+    ``reasoning_content`` is the server-split ``<think>`` text (empty if the
+    server has no reasoning parser or the model emitted none).
+    """
     url = f"{cfg.api_base.rstrip('/')}/chat/completions"
     payload = {
         "model": cfg.model,
         "messages": messages,
         "temperature": cfg.temperature,
-        # Pin thinking mode OFF at generation time so the recorded trajectory
-        # matches how project_steps.py replays it (enable_thinking=False by
-        # default). Without this, the server's default template could generate
-        # with <think> blocks while projection reads it thinking-off, misaligning
-        # the activations with what the model actually computed. vLLM's
-        # OpenAI-compatible endpoint honors chat_template_kwargs.
-        "chat_template_kwargs": {"enable_thinking": False},
+        # Pin thinking mode ON at generation time so the recorded trajectory
+        # matches how project_steps.py replays it (enable_thinking=True, project
+        # decision 2026-07-17). The server's reasoning parser splits the <think>
+        # block into reasoning_content, which we fold back into the recorded turn
+        # so the projection re-renders the same tokens. vLLM's OpenAI-compatible
+        # endpoint honors chat_template_kwargs.
+        "chat_template_kwargs": {"enable_thinking": True},
     }
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -64,7 +69,8 @@ def _chat_completion(
     )
     with urllib.request.urlopen(req, timeout=180) as resp:
         body = json.loads(resp.read().decode("utf-8"))
-    return body["choices"][0]["message"]["content"]
+    message = body["choices"][0]["message"]
+    return message.get("content") or "", message.get("reasoning_content") or ""
 
 
 def _issue_user_message(problem: str) -> str:
@@ -111,13 +117,21 @@ def run_instance(
     for step_idx in range(cfg.max_steps):
         query = _build_query_messages(instance.problem_statement, history)
         try:
-            raw_response = _chat_completion(cfg, query)
+            content, reasoning = _chat_completion(cfg, query)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Model API error ({exc.code}): {body}") from exc
 
-        thought, action = parse_thought_action(raw_response)
+        thought, action = parse_thought_action(content)
         assistant_text = format_assistant_response(thought, action)
+        # Fold the server-split reasoning into the *recorded* turn so the
+        # trajectory reflects thinking-on and project_steps replays the same
+        # tokens (this dev harness stores a flat string, not native fields). The
+        # think block is kept out of the running `history` because Qwen3 strips
+        # prior-turn <think> from context — matching what the model re-sees.
+        recorded_response = assistant_text
+        if reasoning.strip():
+            recorded_response = f"<think>\n{reasoning.strip()}\n</think>\n\n{assistant_text}"
 
         observation = ""
         if action:
@@ -132,7 +146,7 @@ def run_instance(
 
         trajectory_steps.append(
             {
-                "response": assistant_text,
+                "response": recorded_response,
                 "thought": thought,
                 "action": action + ("\n" if action and not action.endswith("\n") else ""),
                 "observation": observation,

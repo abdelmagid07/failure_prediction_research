@@ -34,7 +34,7 @@ Open via: `https://colab.research.google.com/github/abdelmagid07/latent_failiure
 
 Colab may ship a stale `vllm` binary with the wrong CUDA build. `serve_qwen_colab.ipynb` installs vLLM for the detected CUDA version and launches via `python -m vllm.entrypoints.openai.api_server`.
 
-Set `enable_thinking=False` in the chat template to match activation extraction.
+Stage 2 runs with `enable_thinking=True` (project decision 2026-07-17), passed per request as `chat_template_kwargs`. Launch the server with `--enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3` so the `<think>` text is split into `reasoning_content` and tool calls still parse; projection re-renders both through the chat template.
 
 ## Trajectory environments
 

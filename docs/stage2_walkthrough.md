@@ -197,15 +197,19 @@ formed. The code reads two kinds of position per step and tags them:
 The pieces:
 
 - **`stage1/common/chat.py`** — formats a message list into the single exact
-  string the model expects (Qwen's chat template), with `enable_thinking=False`
-  (Qwen has an optional verbose "thinking" mode; turned off everywhere for
-  consistency — a locked decision).
+  string the model expects (Qwen's chat template), with `enable_thinking=True`
+  in Stage 2 (project decision 2026-07-17: Qwen's verbose "thinking" mode is ON
+  for agent trajectories). Because the model's turn is re-rendered from its
+  native fields — post-think `content`, `reasoning_content` (the `<think>` text),
+  and structured `tool_calls` — the template reproduces the exact tokens the
+  model generated (`<think>...</think>` + content + `<tool_call>...`).
 - **`extract/token_spans.py`** — after formatting, the text is one long string but
   the model works in *tokens* (text chunks). This does the bookkeeping to answer
-  "which token number is the last character of the model's response?"
-  (`last_token_of_suffix`) and "which token ends this observation?"
-  (`last_token_of_message_content`). Fiddly string-to-token index matching;
-  nothing conceptual, just necessary so we grab the right position.
+  "which token ends the model's whole response this step?"
+  (`last_token_of_final_assistant`, robust to the trailing tool call) and "which
+  token ends this observation?" (`last_token_of_message_content`). Fiddly
+  string-to-token index matching; nothing conceptual, just necessary so we grab
+  the right position.
 - **`stage1/common/hooks.py` → `LayerActivationCapture`** — how we get the internal
   notes out. Normally a model only gives you output text; the per-layer
   activations are hidden. A "hook" is a listener attached to each of the 36 layers

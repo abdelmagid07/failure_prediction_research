@@ -110,28 +110,45 @@ export MODEL_API_BASE="https://<your-tunnel>.trycloudflare.com/v1"
 curl -fsS "$MODEL_API_BASE/models"        # should list Qwen3-8B
 ```
 
-### The one required manual check: thinking is OFF over the wire
+### The one required manual check: thinking is ON over the wire, with tool calls
 
-Thinking mode **must** be off (see [method.md](method.md) — it's a locked
-decision, and mismatched thinking corrupts every projection). We set it via the
-agent's request config, but there is a known litellm↔vLLM `extra_body` quirk
-([litellm#4769](https://github.com/BerriAI/litellm/issues/4769)), so verify it
-once against the live endpoint before generating any real data:
+Thinking mode **must** be on in Stage 2 (see [method.md](method.md) — project
+decision 2026-07-17; generation and projection must agree or every projection is
+corrupted). We set it via the agent's request config, but there is a known
+litellm↔vLLM `extra_body` quirk
+([litellm#4769](https://github.com/BerriAI/litellm/issues/4769)), and thinking-on
++ tool calls only work if the server runs a reasoning parser (otherwise the tool
+call gets stranded inside the `<think>` text — vllm#20611). Verify once against
+the live endpoint before generating any real data:
 
 ```bash
+# 1. A think block must appear (thinking is honored over the wire):
 curl -s "$MODEL_API_BASE/chat/completions" \
   -H 'Content-Type: application/json' \
   -d '{
         "model": "Qwen3-8B",
         "messages": [{"role":"user","content":"Say hi in one word."}],
-        "chat_template_kwargs": {"enable_thinking": false}
-      }' | grep -c "<think>"     # want 0
+        "chat_template_kwargs": {"enable_thinking": true}
+      }' | grep -c "reasoning_content\|<think>"     # want >= 1
+
+# 2. A structured tool call must parse under thinking-on (reasoning parser works):
+curl -s "$MODEL_API_BASE/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "model": "Qwen3-8B",
+        "messages": [{"role":"user","content":"List files with the bash tool."}],
+        "tools": [{"type":"function","function":{"name":"bash","description":"run a command","parameters":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}}],
+        "tool_choice": "auto",
+        "chat_template_kwargs": {"enable_thinking": true}
+      }' | grep -c '"tool_calls"'     # want a populated tool_calls array
 ```
 
-If you see a `<think>` block, the fallback is Qwen's `/no_think` soft-switch in
-the system prompt. Do **not** try to fix this with the vLLM server flag
-`--default-chat-template-kwargs` — it isn't present in the pinned vllm 0.11.0 and
-adding it breaks server boot.
+If no think block appears, the `extra_body` nesting was dropped — the fallback is
+to omit `/no_think` (Qwen3 thinks by default). If the tool call lands as raw text
+instead of `tool_calls`, the server is missing `--reasoning-parser` /
+`--tool-call-parser hermes`. Do **not** try to fix thinking with the vLLM server
+flag `--default-chat-template-kwargs` — it isn't present in the pinned vllm
+0.11.0 and adding it breaks server boot.
 
 ---
 
@@ -173,8 +190,8 @@ Useful env vars (all optional): `SUBSET` (default `verified`), `SPLIT` (default
 `hosted_vllm/Qwen3-8B`), `OUTPUT_DIR`, `SKIP_PREFLIGHT=1`.
 
 The runner deep-merges `config/mini_swe_qwen.yaml` (our model overrides,
-including thinking-off) onto the installed mini-swe-agent base config, writes a
-`*_resolved.yaml` you can inspect, refuses to launch unless thinking is off, and
+including thinking-on) onto the installed mini-swe-agent base config, writes a
+`*_resolved.yaml` you can inspect, refuses to launch unless thinking is on, and
 produces per-instance `<id>/<id>.traj.json` plus a `preds.json`.
 
 ---
@@ -228,8 +245,10 @@ python -m stage2.extract.project_steps \
   --traj-dir data/normalized \
   --axis-path ../stage1/data/value_axis_proxy.npy \
   --layer 21
-# thinking stays OFF (default); project_steps will HARD-STOP if it detects a
-# thinking-on trajectory, because that would misalign the activations.
+# thinking stays ON (default); project_steps will HARD-STOP if it detects a
+# thinking-off trajectory (mismatch), and runs a one-time render-fidelity check
+# that the chat template reproduces reasoning_content + tool_calls. To project
+# legacy thinking-off data, pass --no-enable-thinking.
 
 python -m stage2.analyze.run_analyses \
   --projections data/projections.parquet \
@@ -249,11 +268,13 @@ them: [analyses.md](analyses.md).
 | `curl $MODEL_API_BASE/models` fails | Colab tab closed, tunnel rotated, or missing `/v1` suffix. Re-copy the URL from the serve notebook. |
 | Runner: "mini-extra not found" | `pip install -e ".[swe]"` in the active venv. |
 | Runner: "Docker is not reachable" | Start Docker Desktop / the daemon; ensure WSL2 integration is on. `docker info` must succeed. |
-| Response contains `<think>` | thinking-off not honored over the wire — see §2 (fallback: Qwen `/no_think`). |
+| Response has no `<think>` / `reasoning_content` | thinking-on not honored over the wire — see §2 (`extra_body` dropped). |
+| Tool call arrives as raw text, not `tool_calls` | server missing `--reasoning-parser` / `--tool-call-parser hermes` — see §2. |
 | vLLM on Colab won't start / CUDA mismatch | the serve notebook reinstalls a CUDA-matched vLLM; re-run that cell. Colab sometimes ships a stale binary. |
 | Ingest excludes trajectories you expected to keep | check the printed `exit_status` histogram; add genuine statuses via `--genuine-statuses`. |
 | Only one outcome class after ingest | expected on tiny pilots; expand the instance list until you have both successes and failures. |
-| `project_steps` aborts with "Thinking-mode mismatch" | the trajectories were generated thinking-ON. Regenerate thinking-off (don't bypass the guard). |
+| `project_steps` aborts with "Thinking-mode mismatch" | trajectories were generated thinking-OFF but projection defaults to thinking-ON. Regenerate thinking-on, or pass `--no-enable-thinking` for legacy data (don't bypass the guard). |
+| `project_steps` aborts with "Render fidelity check failed" | the chat template isn't reproducing `reasoning_content` / `tool_calls`; check the transformers/template version renders them before trusting projections. |
 | devbugs smoke run: "Unknown instance ids: ['mini_add_001']" | that id isn't in the catalog (ids start at `mini_eventbus_001`); use a real id. |
 
 ---
@@ -270,5 +291,5 @@ them: [analyses.md](analyses.md).
 - **Read-only baseline:** `reference/` — the original pipeline snapshot. Never
   edit it.
 
-When in doubt about conventions (thinking-off, on-policy, git ownership, naming),
+When in doubt about conventions (thinking-on, on-policy, git ownership, naming),
 [HANDOFF.md §5](../HANDOFF.md) is authoritative.

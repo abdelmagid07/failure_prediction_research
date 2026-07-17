@@ -124,9 +124,9 @@ print(f"Resolved config -> {out}")
 print(f"  base:            {base_path}")
 print(f"  model_name:      {model['model_name']}")
 print(f"  api_base:        {model_kwargs['api_base']}")
-print(f"  enable_thinking: {thinking}  (must be False)")
-if thinking is not False:
-    raise SystemExit("Refusing to run: enable_thinking is not False in the resolved config.")
+print(f"  enable_thinking: {thinking}  (must be True)")
+if thinking is not True:
+    raise SystemExit("Refusing to run: enable_thinking is not True in the resolved config.")
 PY
 
 # Build a --filter regex from an instance-id file, if one is present.

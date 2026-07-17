@@ -16,13 +16,28 @@ On-disk form (one JSON file per trajectory) matches
       "steps": [
         {
           "step_index": i,
-          "messages_before_gen": [{"role": ..., "content": ...}, ...],
+          "messages_before_gen": [{"role": ..., "content": ..., ...}, ...],
+          "assistant_message": {"role": "assistant", "content": ...,
+                                "reasoning_content": ..., "tool_calls": [...]},
           "assistant_response": "...",
           "observation": "..."
         },
         ...
       ]
     }
+
+Thinking-mode note (project decision 2026-07-17: thinking is ON in Stage 2):
+under Qwen3 thinking-on with vLLM's reasoning + hermes tool parsers, a generated
+turn is split into three fields — ``content`` (post-think prose),
+``reasoning_content`` (the ``<think>`` text), and structured ``tool_calls``. The
+authoritative record of a turn is therefore the native ``assistant_message``
+dict, which the projection step feeds back through the Qwen3 chat template to
+reproduce the exact token stream the model generated. ``messages_before_gen`` is
+likewise kept as native message dicts (assistant ``tool_calls``, ``tool``-role
+``tool_call_id``) so the replayed context matches generation token-for-token.
+``assistant_response`` remains a flattened convenience string (``<think>`` +
+content) for analyses and human inspection; it is not used to reconstruct tokens
+when ``assistant_message`` is present.
 """
 
 from __future__ import annotations
@@ -30,26 +45,39 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-Message = dict[str, str]
+# A message dict may carry more than {role, content}: assistant turns add
+# ``reasoning_content`` / ``tool_calls`` and tool turns add ``tool_call_id``.
+Message = dict[str, Any]
 
 
 @dataclass
 class TrajectoryStep:
-    """One model turn: the context it saw, what it produced, what came back."""
+    """One model turn: the context it saw, what it produced, what came back.
+
+    ``assistant_message`` is the native, structured assistant turn (role,
+    content, reasoning_content, tool_calls) and is authoritative for token-level
+    replay. It is ``None`` for legacy thinking-off trajectories, where
+    ``assistant_response`` (a plain string) is the only representation.
+    """
 
     step_index: int
     messages_before_gen: list[Message]
     assistant_response: str
     observation: str
+    assistant_message: dict | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "step_index": self.step_index,
             "messages_before_gen": self.messages_before_gen,
             "assistant_response": self.assistant_response,
             "observation": self.observation,
         }
+        if self.assistant_message is not None:
+            d["assistant_message"] = self.assistant_message
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "TrajectoryStep":
@@ -58,6 +86,7 @@ class TrajectoryStep:
             messages_before_gen=list(d.get("messages_before_gen", [])),
             assistant_response=d.get("assistant_response", "") or "",
             observation=d.get("observation", "") or "",
+            assistant_message=d.get("assistant_message"),
         )
 
 

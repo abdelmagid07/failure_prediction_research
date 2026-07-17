@@ -18,25 +18,35 @@ The proposal metrics are separation curves, transfer AUROC by position, and inte
 
 ---
 
-## Current Status (updated 2026-07-16)
+## Current Status (updated 2026-07-17)
 
 **Done since the starting status:**
 - ✅ Built `stage2/stage2/trajectories/` — normalized schema + parsers +
   format-aware batch ingest.
 - ✅ **Migrated the real-run agent SWE-agent → mini-swe-agent** (maintained
-  successor; avoids the dead PyPI `sweagent` 0.0.1 / swe-rex install pain; clean
-  thinking-off; science unaffected). New `parse_mini_swe_traj.py`,
+  successor; avoids the dead PyPI `sweagent` 0.0.1 / swe-rex install pain;
+  science unaffected). New `parse_mini_swe_traj.py`,
   `ingest_batch.py --format mini-swe-agent` (allowlist crash guard + exit_status
   histogram), `config/mini_swe_qwen.yaml`, `scripts/run_mini_swe_batch.sh`.
 - ✅ Renamed the home-grown toy harness `stage2/mini/` → `stage2/devbugs/` to end
   the name collision with mini-swe-agent.
-- ✅ De-risking fixes: thinking-off guard in `project_steps.py`; crash-stub
-  exclusion in ingest.
+- ✅ **Migrated Stage 2 to thinking ON** (decision 2026-07-17). Generation and
+  projection both run `enable_thinking=True`. The normalized schema now carries
+  the native assistant turn (`reasoning_content` + structured `tool_calls`) and
+  native history; `project_steps` re-renders it through the Qwen3 chat template
+  to reproduce the generated tokens, reads the last token of the whole assistant
+  turn, and runs a one-time render-fidelity check. Server gains
+  `--reasoning-parser` + `--tool-call-parser hermes`. The frozen Stage 1 axis
+  (built thinking-off) is unchanged → Stage 2 is now a cross-mode transfer test.
+- ✅ De-risking fixes: thinking-mode guard (now bidirectional) + render-fidelity
+  check in `project_steps.py`; crash-stub exclusion in ingest.
 - ✅ Stage 2 offline wiring test green end to end (mini parse → ingest →
-  projection → analyses).
+  projection → analyses); thinking-on template round-trip validated against the
+  real Qwen3 tokenizer.
 
 **Still open (the Week 1 milestone is NOT met yet):**
-- ⬜ One live check that thinking is OFF over the wire (litellm→vLLM `extra_body`).
+- ⬜ One live check that thinking is ON over the wire AND tool calls parse under
+  it (litellm→vLLM `extra_body` + reasoning parser).
 - ⬜ A real SWE-bench run through the mini path (only synthetic fixtures so far).
 - ⬜ Majority-class baseline in `analysis_report.json`.
 
@@ -51,7 +61,8 @@ The pipeline plumbing is built and verified offline. What remains is running it
 on real trajectories.
 
 1. **Colab:** `serve_qwen_colab.ipynb` → copy tunnel URL (`MODEL_API_BASE`). ⬜
-   Then verify thinking-off over the wire (one curl; see onboarding §2).
+   Then verify thinking-on over the wire + tool calls parse (two curls; see
+   onboarding §2).
 2. **Local (Docker):** `pip install -e ".[swe]"` (installs mini-swe-agent), set
    `MODEL_API_BASE`, run `run_mini_swe_batch.sh` with 3–5 ids from
    `config/pilot_instances.txt`. ⬜

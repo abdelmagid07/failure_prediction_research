@@ -26,25 +26,34 @@ def _char_to_token(offset_mapping: list[tuple[int, int]], char_pos: int) -> int 
     return None
 
 
-def last_token_of_suffix(
+def last_token_of_final_assistant(
     full_text: str,
-    suffix_text: str,
     offset_mapping: list[tuple[int, int]],
+    *,
+    assistant_marker: str = "<|im_start|>assistant",
+    turn_end_marker: str = "<|im_end|>",
 ) -> TokenSpan | None:
-    """Find the last token belonging to suffix_text appended at end of full_text."""
-    if not suffix_text:
-        return None
+    """Last token of the final assistant turn in a rendered chat transcript.
 
-    suffix_start = full_text.rfind(suffix_text)
-    if suffix_start < 0:
-        suffix_start = len(full_text) - len(suffix_text)
-    suffix_end = suffix_start + len(suffix_text)
+    Under thinking-ON the assistant turn is ``<think>...</think>`` + content +
+    ``<tool_call>...</tool_call>``, so the "last token of assistant output" is
+    the final token of that whole block, not of any one substring. We locate the
+    last ``<|im_start|>assistant`` marker and take the last token strictly before
+    the following ``<|im_end|>`` (or end of text). This is robust to reasoning
+    and tool-call rendering, unlike matching a flattened response string.
+    """
+    marker_pos = full_text.rfind(assistant_marker)
+    if marker_pos < 0:
+        return None
+    region_start = marker_pos + len(assistant_marker)
+    end_pos = full_text.find(turn_end_marker, region_start)
+    region_end = end_pos if end_pos >= 0 else len(full_text)
 
     last_tok = None
     for i, (start, end) in enumerate(offset_mapping):
-        if end <= suffix_start:
+        if end <= region_start:
             continue
-        if start >= suffix_end:
+        if start >= region_end:
             break
         last_tok = i
 

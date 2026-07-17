@@ -34,12 +34,18 @@ The resolved/unresolved *outcome* is not in this file; it comes from the
 SWE-bench evaluation harness ``results.json`` and is passed in by the caller
 (see :mod:`stage2.trajectories.ingest_batch`).
 
-Thinking-mode note: under our locked thinking-OFF setup the assistant ``content``
-is the complete raw response, so no reconstruction is needed. If thinking were
-ever enabled, vLLM's reasoning parser could split the ``<think>`` block into a
-separate ``extra.reasoning_content`` field that ``content`` would omit — which is
-one more reason generation stays thinking-off (the ``project_steps`` guard only
-inspects ``content``).
+Thinking-mode note (thinking is ON in Stage 2 as of 2026-07-17): with Qwen3
+thinking-on served through vLLM's reasoning + hermes tool parsers, each stored
+assistant message is ``response.choices[0].message`` dumped verbatim, so its
+``content`` is the post-think prose, the ``<think>`` text lives in a sibling
+``reasoning_content`` field, and the tool call is structured in ``tool_calls``
+(mini's own bookkeeping sits under ``extra`` and is dropped). We keep all three
+native fields in ``assistant_message`` — flattening to ``content`` would silently
+drop the reasoning and tool-call tokens the model actually generated. The
+projection step re-renders these through the Qwen3 chat template to reproduce
+the exact token stream, and ``messages_before_gen`` is kept native for the same
+reason (history assistant ``tool_calls`` and ``tool``-role ``tool_call_id`` must
+render identically to how they were sent at generation time).
 """
 
 from __future__ import annotations
@@ -57,6 +63,86 @@ _OBSERVATION_ROLES = frozenset({"user", "tool"})
 # The synthetic terminal marker mini appends after the last real turn. The model
 # never saw it, so it must never leak into any step's context.
 _SYNTHETIC_ROLES = frozenset({"exit"})
+
+
+def _clean_tool_calls(tool_calls: object) -> list[dict]:
+    """Normalize an OpenAI-style ``tool_calls`` list to a minimal, JSON-safe form.
+
+    We keep only the fields the Qwen3 chat template renders (id, type, function
+    name + arguments) so the re-rendered turn matches generation and the on-disk
+    record stays free of provider-specific noise. ``arguments`` is preserved
+    as-is (mini/litellm store it as a JSON string) — the template stringifies it.
+    """
+    if not isinstance(tool_calls, list):
+        return []
+    out: list[dict] = []
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        fn = tc.get("function") or {}
+        if not isinstance(fn, dict):
+            fn = {}
+        out.append(
+            {
+                "id": tc.get("id", "") or "",
+                "type": tc.get("type", "function") or "function",
+                "function": {
+                    "name": fn.get("name", "") or "",
+                    "arguments": fn.get("arguments", "") or "",
+                },
+            }
+        )
+    return out
+
+
+def _assistant_message(msg: dict) -> dict:
+    """Build the native assistant turn kept for token-level replay."""
+    out: dict = {"role": "assistant", "content": _coerce_content(msg.get("content", ""))}
+    reasoning = msg.get("reasoning_content")
+    if reasoning:
+        out["reasoning_content"] = _coerce_content(reasoning)
+    tool_calls = _clean_tool_calls(msg.get("tool_calls"))
+    if tool_calls:
+        out["tool_calls"] = tool_calls
+    return out
+
+
+def _derived_response(assistant_message: dict) -> str:
+    """Flatten a native assistant turn to a human/analysis convenience string.
+
+    Mirrors the flat token stream the model generated: the ``<think>`` block (if
+    any) followed by the post-think content. Not used for token reconstruction
+    when the native ``assistant_message`` is available.
+    """
+    content = assistant_message.get("content", "") or ""
+    reasoning = assistant_message.get("reasoning_content")
+    if reasoning:
+        return f"<think>\n{reasoning}\n</think>\n\n{content}"
+    return content
+
+
+def _history_message(msg: dict) -> Message | None:
+    """Normalize one prior-turn message for ``messages_before_gen``.
+
+    Preserves the structure the Qwen3 template needs to reproduce the generation
+    prompt: assistant ``tool_calls`` and ``tool``-role ``tool_call_id``. The
+    prior-turn ``reasoning_content`` is intentionally dropped — Qwen3's template
+    strips ``<think>`` blocks from history, so the model never re-saw them.
+    Synthetic (``exit``) turns are skipped; provider ``extra`` is discarded.
+    """
+    role = str(msg.get("role", ""))
+    if role in _SYNTHETIC_ROLES:
+        return None
+    out: Message = {"role": role, "content": _coerce_content(msg.get("content", ""))}
+    if role == "assistant":
+        tool_calls = _clean_tool_calls(msg.get("tool_calls"))
+        if tool_calls:
+            out["tool_calls"] = tool_calls
+    elif role == "tool":
+        tool_call_id = msg.get("tool_call_id")
+        if tool_call_id:
+            out["tool_call_id"] = tool_call_id
+    return out
 
 
 def mini_instance_id(info: dict, traj_path: Path) -> str:
@@ -97,15 +183,14 @@ def load_messages(data: dict) -> list[dict]:
 
 
 def _prefix_messages(messages: list) -> list[Message]:
-    """Normalize a message prefix to ``{role, content}``, dropping synthetic turns."""
+    """Normalize a message prefix to native dicts, dropping synthetic turns."""
     out: list[Message] = []
     for msg in messages:
         if not isinstance(msg, dict):
             continue
-        role = str(msg.get("role", ""))
-        if role in _SYNTHETIC_ROLES:
-            continue
-        out.append({"role": role, "content": _coerce_content(msg.get("content", ""))})
+        normalized = _history_message(msg)
+        if normalized is not None:
+            out.append(normalized)
     return out
 
 
@@ -129,12 +214,14 @@ def parse_mini_swe_traj(traj_path: Path, outcome: int) -> TrajectoryRecord:
             if isinstance(nxt, dict) and str(nxt.get("role", "")) in _OBSERVATION_ROLES:
                 observation = _coerce_content(nxt.get("content", ""))
 
+        assistant_message = _assistant_message(msg)
         steps.append(
             TrajectoryStep(
                 step_index=step_index,
                 messages_before_gen=_prefix_messages(messages[:i]),
-                assistant_response=_coerce_content(msg.get("content", "")),
+                assistant_response=_derived_response(assistant_message),
                 observation=observation,
+                assistant_message=assistant_message,
             )
         )
         step_index += 1

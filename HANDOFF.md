@@ -44,15 +44,22 @@ Full research framing: [docs/method.md](docs/method.md). Proposal:
     reads the value-axis projection at the last token of assistant output (and of
     tool observations), tagging rows `reasoning` vs `tool_output`.
   - `analyze/` — final-step AUROC, SNR-by-position, noise-by-token-type.
-- **Agent migration (this session)** — switched the real-run agent from
+- **Agent migration** — switched the real-run agent from
   **SWE-agent → mini-swe-agent** (the maintained lightweight successor SWE-bench
   is migrating to). See §4.
+- **Thinking-ON migration (this session, 2026-07-17)** — Stage 2 now generates
+  and projects with `enable_thinking=True`. The schema carries the native
+  assistant turn (`reasoning_content` + `tool_calls`) and native history;
+  `project_steps` re-renders it through the Qwen3 template and reads the last
+  token of the full assistant turn, with a render-fidelity guard. Stage 1 axis
+  is untouched, so this is now a **cross-mode transfer** test. See §4b.
 
 ### Not done yet
 - A **real SWE-bench run** through the mini-swe-agent path (the whole point of
   Week 1). Everything downstream has only been exercised on synthetic fixtures.
-- **One live verification** that thinking-mode is actually OFF over the wire (see
-  §6, the single most important pre-run check).
+- **One live verification** that thinking-mode is actually ON over the wire and
+  that tool calls still parse under it (see §6, the single most important pre-run
+  check).
 - Majority-class baseline surfaced in `analysis_report.json`.
 - Stage 3 (projection-vs-position curves, elicited-confidence baseline) and
   Stage 4 (layer localization).
@@ -66,7 +73,7 @@ stage1/                      # build + verify the value axis (DONE)
 stage2/
   config/
     defaults.yaml            # model=Qwen/Qwen3-8B, layer=21, n_layers=36,
-                             #   hidden_dim=4096, enable_thinking=false
+                             #   hidden_dim=4096, enable_thinking=true
     presets/dev.yaml         # dev preset -> proxy axis (value_axis_proxy.npy)
     mini_swe_qwen.yaml       # PRIMARY: mini-swe-agent model-override layer
     swe_agent_qwen.yaml      # LEGACY: SWE-agent config (kept until mini verified)
@@ -107,7 +114,9 @@ swapping agents only meant writing one new parser:
 
 ```
 TrajectoryRecord(trajectory_id, outcome, steps[], n_steps)   # n_steps is derived, never trusted
-  TrajectoryStep(step_index, messages_before_gen[], assistant_response, observation)
+  TrajectoryStep(step_index, messages_before_gen[], assistant_response, observation,
+                 assistant_message)   # assistant_message = native {content, reasoning_content,
+                                      #   tool_calls}, authoritative for thinking-on replay
 ```
 
 ---
@@ -117,9 +126,9 @@ TrajectoryRecord(trajectory_id, outcome, steps[], n_steps)   # n_steps is derive
 **Why:** SWE-agent 1.x is git-only (PyPI `sweagent` is stuck at 0.0.1) and drags
 in swe-rex dependency pain; it's in maintenance mode. mini-swe-agent is the
 maintained successor, installs from PyPI, is ~100 lines (trivial to describe in
-the paper), scores well on SWE-bench Verified, and lets us set thinking-off in a
-clean config block. **The science is unaffected** — both are on-policy Qwen3-8B
-on real SWE-bench; the choice is purely engineering.
+the paper), scores well on SWE-bench Verified, and lets us set the thinking mode
+in a clean config block. **The science is unaffected** — both are on-policy
+Qwen3-8B on real SWE-bench; the choice is purely engineering.
 
 **What changed:**
 - New parser `parse_mini_swe_traj.py`. mini stores one running `messages` list
@@ -136,8 +145,8 @@ on real SWE-bench; the choice is purely engineering.
   Ingest prints an `exit_status` histogram so the real vocabulary is visible.
 - `config/mini_swe_qwen.yaml` + `scripts/run_mini_swe_batch.sh` — the runner
   deep-merges our model overrides onto the *installed* mini base config (so task
-  prompts stay reproducible against a pinned version), sets thinking-off, and
-  refuses to launch unless `enable_thinking is False`.
+  prompts stay reproducible against a pinned version), sets thinking-on, and
+  refuses to launch unless `enable_thinking is True`.
 - **Rename:** the project's own toy dev harness `stage2/mini/` → `stage2/devbugs/`
   (package, `run_devbugs_batch.sh`, `devbugs_agent_colab.ipynb`,
   `test_devbugs_catalog.py`, `[devbugs]` extra). This kills the name collision
@@ -149,13 +158,55 @@ on real SWE-bench; the choice is purely engineering.
 
 ---
 
+## 4b. The thinking-OFF → thinking-ON migration (2026-07-17)
+
+**Why:** maintainer's architectural decision — Stage 2 trajectories are now
+generated AND projected with Qwen3 thinking **ON**, so the value axis is read off
+the model's full reasoning state. Stage 1 and the frozen axis are **not** touched
+(the axis was built thinking-off), so the Stage 2 result is explicitly a
+**cross-mode transfer** claim; the paper must say so (see [docs/method.md](docs/method.md)).
+
+**What changed:**
+- **Serving** — `serve_qwen_colab.ipynb` launches vLLM with
+  `--enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3`.
+  The reasoning parser splits the generated `<think>` text into
+  `reasoning_content`; without it, thinking-on + tool calls strands the tool call
+  inside the think text (vllm#20611). Use `deepseek_r1` if a build lacks `qwen3`.
+- **Configs** — `defaults.yaml` `enable_thinking: true`; `mini_swe_qwen.yaml` and
+  `qwen_mini.yaml` send `chat_template_kwargs.enable_thinking: true`; the runner
+  guard now refuses to launch unless thinking is ON.
+- **Schema** (`trajectories/schema.py`) — `TrajectoryStep` gains
+  `assistant_message`, the native turn (`content` + `reasoning_content` +
+  `tool_calls`). `messages_before_gen` is now native dicts (assistant
+  `tool_calls`, `tool`-role `tool_call_id`), so replayed context matches
+  generation token-for-token. `assistant_response` stays as a flattened
+  convenience string (`<think>` + content).
+- **Parser** (`parse_mini_swe_traj.py`) — preserves the structured fields instead
+  of flattening to `content`; drops provider `extra`; history keeps tool calls
+  but drops prior-turn reasoning (Qwen3 strips it from context).
+- **Projection** (`project_steps.py`) — replays `messages_before_gen + [native
+  assistant turn]` through the Qwen3 template (`enable_thinking=True`), which
+  re-emits `<think>...</think>` + content + `<tool_call>...`. Reads the last token
+  of the whole assistant turn via the new `last_token_of_final_assistant`
+  (robust to the trailing tool call). The thinking guard is now bidirectional,
+  and a one-time **render-fidelity check** aborts if the template fails to
+  reproduce `reasoning_content` / `tool_calls`. `--no-enable-thinking` still
+  projects legacy thinking-off data. Validated against the real Qwen3 tokenizer.
+- **devbugs** (`agent_loop.py`) — toy harness sends thinking-on and folds the
+  server-split `reasoning_content` back into the recorded turn.
+
+---
+
 ## 5. Conventions (read before editing)
 
-- **Thinking mode is OFF everywhere, locked.** Qwen3's `enable_thinking` must be
-  `false` at generation AND projection, or the recorded tokens no longer match
-  what the model computed. `project_steps.py` has a hard guard
-  (`assert_thinking_mode_matches`) that stops the run if it detects `<think>`
-  blocks under thinking-off. Do not "fix" a guard failure by disabling the guard.
+- **Thinking mode is ON in Stage 2 (decision 2026-07-17).** Qwen3's
+  `enable_thinking` must be `true` at generation AND projection, or the recorded
+  tokens no longer match what the model computed. `project_steps.py` has a
+  bidirectional guard (`assert_thinking_mode_matches`) plus a one-time
+  render-fidelity check; do not "fix" a guard failure by disabling the guard.
+  (Stage 1 built the axis thinking-OFF and is frozen — Stage 2 is a cross-mode
+  transfer test, not a bug. Legacy thinking-off data projects with
+  `--no-enable-thinking`.)
 - **On-policy only.** The model that generates a trajectory is the model we read
   internally. Never mix generators.
 - **The frozen axis is frozen.** No refitting on agent data.
@@ -180,7 +231,7 @@ on real SWE-bench; the choice is purely engineering.
 | Decision | Value |
 |----------|-------|
 | Model | `Qwen/Qwen3-8B` |
-| Thinking mode | `enable_thinking=False` everywhere |
+| Thinking mode | Stage 2: `enable_thinking=True`. Stage 1 axis built `=False` → cross-mode transfer |
 | Projection layer | 21 (verify from Stage 1 manifest) |
 | Decoder layers | 36 (indices 0–35) |
 | Trajectories | On-policy only |
@@ -195,12 +246,14 @@ on real SWE-bench; the choice is purely engineering.
 
 1. **Finish the local environment** (WSL2 + Docker + `pip install -e ".[swe]"`).
    Full instructions: [docs/onboarding.md](docs/onboarding.md).
-2. **LIVE thinking-off check (do this before any real run).** Send one completion
-   through the resolved mini config and confirm the response has **no `<think>`
-   block**. There is a known litellm↔vLLM `extra_body` quirk
-   ([litellm#4769](https://github.com/BerriAI/litellm/issues/4769)); if the
-   nesting isn't honored, fall back to Qwen's `/no_think` soft-switch in the
-   system prompt. This is the one unverified assumption in the whole path.
+2. **LIVE thinking-on + tool-call check (do this before any real run).** Send one
+   completion through the resolved mini config and confirm the response carries a
+   `<think>` block / `reasoning_content` **and** a structured `tool_calls` array.
+   There is a known litellm↔vLLM `extra_body` quirk
+   ([litellm#4769](https://github.com/BerriAI/litellm/issues/4769)), and
+   thinking-on + tool calls only parse when the server runs `--reasoning-parser`
+   (vllm#20611). Two curls in [docs/onboarding.md](docs/onboarding.md) §2. This is
+   the one unverified assumption in the whole path.
 3. **Run a small pilot** (3–5 ids from `config/pilot_instances.txt`) through
    `run_mini_swe_batch.sh`, then the swebench harness for labels, then
    `ingest_batch --format mini-swe-agent`. **Inspect the exit_status histogram**
@@ -218,8 +271,13 @@ on real SWE-bench; the choice is purely engineering.
 ## 7. Known issues & gotchas
 
 - **litellm→vLLM `extra_body`** — see step 2 above. Unverified until a live run.
-- **vLLM 0.11.0 has no `--default-chat-template-kwargs`** flag, so thinking-off
-  cannot be forced at the server level on the pinned version. This is why we do
+- **Thinking-on needs a reasoning parser for tool calls.** With
+  `--tool-call-parser hermes` alone, a thinking-on turn can leave the tool call
+  stranded inside the `<think>` text and `tool_calls` comes back empty
+  (vllm#20611). The serve notebook adds `--reasoning-parser qwen3` to split the
+  think text out. If a build lacks `qwen3`, use `deepseek_r1`.
+- **vLLM 0.11.0 has no `--default-chat-template-kwargs`** flag, so thinking mode
+  cannot be forced at the server level on the pinned version. This is why we set
   it per-request via the model config instead. Do not add that server flag — it
   breaks boot on 0.11.0.
 - **`devbugs_agent_colab.ipynb` smoke run uses instance id `mini_add_001`**,

@@ -20,16 +20,22 @@ model:
     api_base: http://localhost:8000/v1   # placeholder; set MODEL_API_BASE
     api_key: EMPTY                        # placeholder; set MODEL_API_KEY
     temperature: 0.0
-    # THINKING OFF — locked project decision. Qwen3 must not emit a <think>
-    # block, so the recorded trajectory matches how stage2.extract.project_steps
-    # replays it (enable_thinking=False). vLLM reads chat_template_kwargs from
-    # the request body; litellm forwards whatever is under extra_body.
+    # THINKING ON — project decision 2026-07-17. Qwen3 emits a <think> block and
+    # the trajectory is generated + projected thinking-on (stage2.extract.
+    # project_steps runs with enable_thinking=True). The server must be launched
+    # with a reasoning parser + hermes tool parser (see serve_qwen_colab.ipynb)
+    # so the <think> text lands in reasoning_content and the tool call in
+    # tool_calls; project_steps re-renders both through the chat template.
+    #
+    # This is set explicitly (rather than relying on Qwen3's thinking-on default)
+    # to survive server-side default changes. vLLM reads chat_template_kwargs
+    # from the request body; litellm forwards whatever is under extra_body.
     #
     # VERIFY LIVE ONCE before trusting a full run: the litellm<->vLLM extra_body
     # path has known quirks (BerriAI/litellm#4769). Send one completion through
-    # this config and confirm the response carries no <think> block. If the
-    # nesting is not honored, fall back to the Qwen `/no_think` soft-switch in
-    # the system prompt, or a vLLM build with --default-chat-template-kwargs.
+    # this config and confirm the response carries a <think> block (or
+    # reasoning_content when the reasoning parser is active) AND a structured
+    # tool call.
     extra_body:
       chat_template_kwargs:
-        enable_thinking: false
+        enable_thinking: true

@@ -16,12 +16,10 @@ model:
     api_key: EMPTY
     temperature: 0.0
     drop_params: true
-    # THINKING OFF — must match stage2 projection (enable_thinking=False).
-    # Verify the response has no <think> block. If litellm drops extra_body,
-    # fall back to /no_think in the system prompt.
+    # THINKING ON 
     extra_body:
       chat_template_kwargs:
-        enable_thinking: false
+        enable_thinking: true
 
 
 

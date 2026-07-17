@@ -19,8 +19,8 @@ from stage2.common.paths import NORMALIZED_DIR, data_file, require_axis_path
 from stage2.common.projection import load_axis_direction, project_activation
 from stage2.extract.token_spans import (
     find_observation_message_index,
+    last_token_of_final_assistant,
     last_token_of_message_content,
-    last_token_of_suffix,
 )
 from stage2.trajectories.schema import TrajectoryRecord, load_trajectories_from_dir
 
@@ -37,18 +37,24 @@ _THINK_RE = re.compile(r"<think>", re.IGNORECASE)
 def trajectory_uses_thinking(records: list[TrajectoryRecord]) -> bool:
     """Detect whether the trajectories were generated with thinking mode ON.
 
-    Qwen3 emits an explicit ``<think>`` block when generating with thinking
-    enabled. If any recorded assistant turn contains one, generation was
-    thinking-on. We check both the per-step ``assistant_response`` and the
-    assistant messages carried in ``messages_before_gen``.
+    Under Qwen3 thinking-on served with a reasoning parser, the ``<think>`` text
+    is split into the native ``assistant_message.reasoning_content`` field rather
+    than left inline in ``content``; older/no-parser captures leave it inline. We
+    treat a trajectory as thinking-on if *any* assistant turn carries a
+    ``reasoning_content`` or an inline ``<think>`` block, checking both the
+    per-step ``assistant_message`` / ``assistant_response`` and the assistant
+    turns in ``messages_before_gen``.
     """
     for rec in records:
         for step in rec.steps:
+            if step.assistant_message and step.assistant_message.get("reasoning_content"):
+                return True
             if _THINK_RE.search(step.assistant_response or ""):
                 return True
             for msg in step.messages_before_gen:
-                if msg.get("role") == "assistant" and _THINK_RE.search(
-                    msg.get("content", "") or ""
+                if msg.get("role") == "assistant" and (
+                    msg.get("reasoning_content")
+                    or _THINK_RE.search(msg.get("content", "") or "")
                 ):
                     return True
     return False
@@ -63,24 +69,72 @@ def assert_thinking_mode_matches(
     the activation at its last token. If the template's thinking mode differs from
     the mode the trajectory was *generated* under, the tokenization (and thus the
     activation we read) no longer corresponds to what the model actually computed.
-    That silently corrupts every projection, so we refuse to proceed.
+    That silently corrupts every projection, so we refuse to proceed either way.
+    (Stage 2 runs thinking-ON by default as of 2026-07-17; legacy thinking-off
+    data can still be projected with ``--no-enable-thinking``.)
     """
     generated_with_thinking = trajectory_uses_thinking(records)
     if generated_with_thinking and not enable_thinking:
         raise SystemExit(
-            "Thinking-mode mismatch: trajectories contain <think> blocks (generated "
-            "with thinking ON) but projection is running with thinking OFF. Re-run "
-            "with --enable-thinking so the chat template matches how the model "
-            "actually generated. (Or regenerate trajectories thinking-off: serve "
-            "vLLM with --chat-template-kwargs '{\"enable_thinking\": false}'.)"
+            "Thinking-mode mismatch: trajectories were generated with thinking ON "
+            "(reasoning_content / <think> blocks present) but projection is running "
+            "with thinking OFF. Re-run with --enable-thinking so the chat template "
+            "matches how the model actually generated."
         )
     if enable_thinking and not generated_with_thinking:
-        print(
-            "  WARNING: --enable-thinking is set but no <think> blocks were found in "
-            "the trajectories. If they were generated thinking-off, drop "
-            "--enable-thinking so the template matches.",
-            flush=True,
+        raise SystemExit(
+            "Thinking-mode mismatch: projection is running with thinking ON but the "
+            "trajectories carry no reasoning_content / <think> blocks (generated "
+            "thinking OFF). Re-run with --no-enable-thinking to match, or regenerate "
+            "the trajectories with thinking ON."
         )
+
+
+def _final_assistant_segment(full_text: str) -> str:
+    """The rendered text of the last assistant turn (marker-delimited)."""
+    marker = "<|im_start|>assistant"
+    marker_pos = full_text.rfind(marker)
+    if marker_pos < 0:
+        return ""
+    region_start = marker_pos + len(marker)
+    end_pos = full_text.find("<|im_end|>", region_start)
+    return full_text[region_start : end_pos if end_pos >= 0 else len(full_text)]
+
+
+def assert_render_fidelity(full_text: str, assistant_message: dict) -> None:
+    """Confirm the chat template re-rendered the native turn faithfully.
+
+    The projection's correctness hinges on the Qwen3 template reproducing the
+    generated token stream from the split ``reasoning_content`` / ``tool_calls``
+    fields. If a template version drops the ``<think>`` block or mangles the tool
+    call, the activation we read no longer matches what the model computed, so we
+    fail loudly (the thinking-ON analogue of the old thinking-off guard). Run once
+    per projection on the first structured turn.
+    """
+    segment = _final_assistant_segment(full_text)
+
+    reasoning = (assistant_message.get("reasoning_content") or "").strip()
+    if reasoning:
+        probe = reasoning[: min(40, len(reasoning))]
+        if probe and probe not in segment:
+            raise SystemExit(
+                "Render fidelity check failed: the assistant's reasoning_content is "
+                "absent from the re-rendered turn. The Qwen3 chat template is not "
+                "emitting the <think> block for completed turns, so the replayed "
+                "tokens do not match generation. Verify the transformers/template "
+                "version renders reasoning_content before trusting projections."
+            )
+
+    for tc in assistant_message.get("tool_calls") or []:
+        name = (tc.get("function") or {}).get("name", "")
+        if name and name not in segment:
+            raise SystemExit(
+                "Render fidelity check failed: tool call "
+                f"{name!r} is absent from the re-rendered turn. The chat template is "
+                "not reproducing tool_calls, so the replayed tokens do not match "
+                "generation. Verify the template renders tool_calls (hermes-style) "
+                "before trusting projections."
+            )
 
 
 def _encode_template(tokenizer, messages, enable_thinking: bool):
@@ -128,6 +182,7 @@ def extract_rows_for_trajectory(
     enable_thinking: bool,
     n_layers: int,
     device: torch.device,
+    fidelity_state: dict | None = None,
 ) -> list[dict]:
     rows: list[dict] = []
     n_steps = record.n_steps
@@ -136,14 +191,27 @@ def extract_rows_for_trajectory(
         i = step.step_index
         rp = rel_pos(i, n_steps)
 
-        if step.assistant_response.strip():
-            messages = list(step.messages_before_gen) + [
-                {"role": "assistant", "content": step.assistant_response}
-            ]
+        # The native assistant turn is authoritative for token-level replay; fall
+        # back to a plain-content message for legacy thinking-off trajectories.
+        assistant_msg = step.assistant_message or {
+            "role": "assistant",
+            "content": step.assistant_response,
+        }
+        if step.assistant_message is not None or step.assistant_response.strip():
+            messages = list(step.messages_before_gen) + [assistant_msg]
             text, input_ids_list, offset_mapping = _encode_template(
                 tokenizer, messages, enable_thinking
             )
-            span = last_token_of_suffix(text, step.assistant_response, offset_mapping)
+            # Verify template fidelity once on the first structured turn: the read
+            # position is only meaningful if the render reproduces generation.
+            if (
+                fidelity_state is not None
+                and not fidelity_state.get("checked")
+                and step.assistant_message is not None
+            ):
+                assert_render_fidelity(text, step.assistant_message)
+                fidelity_state["checked"] = True
+            span = last_token_of_final_assistant(text, offset_mapping)
             if span is not None:
                 input_ids = torch.tensor([input_ids_list], device=device)
                 proj = _project_at_token(
@@ -236,6 +304,7 @@ def run(
     device = next(model.parameters()).device
 
     all_rows: list[dict] = []
+    fidelity_state: dict = {"checked": False}
     for record in records:
         print(
             f"  {record.trajectory_id}: {record.n_steps} steps, outcome={record.outcome}",
@@ -250,6 +319,7 @@ def run(
             enable_thinking=enable_thinking,
             n_layers=n_layers,
             device=device,
+            fidelity_state=fidelity_state,
         )
         all_rows.extend(rows)
         print(f"    -> {len(rows)} projection rows", flush=True)
@@ -280,7 +350,14 @@ def main():
     ap.add_argument("--axis-path", type=Path, default=defaults["axis_path"])
     ap.add_argument("--dtype", default=defaults["dtype"])
     ap.add_argument("--n-layers", type=int, default=defaults["n_layers"])
-    ap.add_argument("--enable-thinking", action="store_true")
+    ap.add_argument(
+        "--enable-thinking",
+        action=argparse.BooleanOptionalAction,
+        default=defaults["enable_thinking"],
+        help="Render the chat template with Qwen3 thinking mode. Defaults to the "
+        "config value (thinking ON in Stage 2); use --no-enable-thinking to "
+        "project legacy thinking-off trajectories.",
+    )
     ap.add_argument(
         "--no-thinking-check",
         action="store_true",
@@ -310,7 +387,7 @@ def main():
         axis_path=axis_path,
         layer=args.layer,
         model_name=args.model,
-        enable_thinking=args.enable_thinking or defaults["enable_thinking"],
+        enable_thinking=args.enable_thinking,
         dtype=args.dtype,
         n_layers=args.n_layers,
         output_path=args.output,

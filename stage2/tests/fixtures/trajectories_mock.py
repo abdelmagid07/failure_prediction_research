@@ -12,6 +12,18 @@ from stage2.trajectories.schema import TrajectoryRecord, TrajectoryStep, save_tr
 def _make_record(trajectory_id: str, outcome: int, n_steps: int) -> TrajectoryRecord:
     steps = []
     for i in range(n_steps):
+        assistant_message = {
+            "role": "assistant",
+            "content": f"Step {i}: inspect and patch.",
+            "reasoning_content": f"Reasoning for step {i}: I should inspect file_{i}.py.",
+            "tool_calls": [
+                {
+                    "id": f"call_{i}",
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": f'{{"command": "cat file_{i}.py"}}'},
+                }
+            ],
+        }
         steps.append(
             TrajectoryStep(
                 step_index=i,
@@ -19,8 +31,12 @@ def _make_record(trajectory_id: str, outcome: int, n_steps: int) -> TrajectoryRe
                     {"role": "system", "content": "You are a coding agent."},
                     {"role": "user", "content": f"ISSUE: fix bug {trajectory_id} (step {i})"},
                 ],
-                assistant_response=f"Step {i}: inspect and patch.",
+                assistant_response=(
+                    f"<think>\nReasoning for step {i}: I should inspect file_{i}.py.\n</think>\n\n"
+                    f"Step {i}: inspect and patch."
+                ),
                 observation=f"file_{i}.py\nline {i * 10}: def foo(): pass\n",
+                assistant_message=assistant_message,
             )
         )
     return TrajectoryRecord(
@@ -33,21 +49,39 @@ def _make_record(trajectory_id: str, outcome: int, n_steps: int) -> TrajectoryRe
 
 def _mini_traj(instance_id: str, exit_status: str, n_assistant: int) -> dict:
     """A minimal mini-swe-agent trajectory: system + user, then alternating
-    assistant/observation turns, then the synthetic exit marker."""
+    assistant/tool turns, then the synthetic exit marker.
+
+    Assistant turns carry the thinking-on shape (post-think ``content`` +
+    ``reasoning_content`` + structured ``tool_calls``); observations are
+    ``tool``-role messages keyed by ``tool_call_id``, matching the reasoning +
+    hermes parser output the real runner records."""
     messages: list[dict] = [
         {"role": "system", "content": "You are a helpful coding assistant."},
         {"role": "user", "content": f"ISSUE: fix bug in {instance_id}"},
     ]
     for i in range(n_assistant):
+        call_id = f"call_{i}"
         messages.append(
             {
                 "role": "assistant",
-                "content": f"THOUGHT: step {i}.\n\n```bash\nls step_{i}\n```",
+                "content": f"Inspecting step {i}.",
+                "reasoning_content": f"For step {i} I should list step_{i}.",
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": f'{{"command": "ls step_{i}"}}'},
+                    }
+                ],
                 "extra": {"actions": [f"ls step_{i}"]},
             }
         )
         messages.append(
-            {"role": "user", "content": f"<returncode>0</returncode>\n<output>\nstep_{i}.py\n</output>"}
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": f"<returncode>0</returncode>\n<output>\nstep_{i}.py\n</output>",
+            }
         )
     messages.append({"role": "exit", "content": exit_status, "extra": {"exit_status": exit_status}})
     return {
