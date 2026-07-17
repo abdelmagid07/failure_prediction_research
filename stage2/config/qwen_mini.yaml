@@ -1,0 +1,27 @@
+# Toy-run model override for local mini -> Colab vLLM (Qwen3-0.6B smoke test).
+# Not for paper experiments — switch to Qwen3-8B for real runs.
+#
+# Usage (model-only -c needs the default mini config merged first):
+#   cd stage2
+#   mini -c mini -c config/qwen_mini.yaml -t "Create a file called hello.py that prints hello world"
+#
+# If the Cloudflare tunnel URL changes, update api_base below (must end in /v1).
+# If you switch smoke models (e.g. Qwen3-1.7B), update model_name to match SERVED_NAME.
+
+model:
+  model_name: hosted_vllm/Qwen3-1.7B
+  cost_tracking: ignore_errors
+  model_kwargs:
+    api_base: https://horses-second-establish-parking.trycloudflare.com/v1
+    api_key: EMPTY
+    temperature: 0.0
+    drop_params: true
+    # THINKING OFF — must match stage2 projection (enable_thinking=False).
+    # Verify the response has no <think> block. If litellm drops extra_body,
+    # fall back to /no_think in the system prompt.
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+
+
+
