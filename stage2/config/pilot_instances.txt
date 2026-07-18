@@ -1,24 +1,34 @@
-# SWE-bench Lite pilot instances (~20)
-# Mix of repos; swap if Qwen3-8B solve rate is too low on your hardware.
+# SWE-bench Verified pilot instances (~20, diverse repos)
+# Project decision 2026-07-18: Stage 2 uses SWE-bench Verified everywhere.
+# Every id below is a real princeton-nlp/SWE-bench_Verified test instance, so the
+# runner's --filter matches the chosen subset (SUBSET=verified). Do NOT mix in
+# Lite-only ids: they'd be silently dropped by the filter.
+#
+# Regenerate / extend from the dataset (guarantees valid ids):
+#   python -c "from datasets import load_dataset; \
+#     [print(r['instance_id']) for r in load_dataset('princeton-nlp/SWE-bench_Verified', split='test')]"
+#
 # Format: owner__repo-issue_number
-
 astropy__astropy-12907
-astropy__astropy-14182
-django__django-11099
-django__django-13265
-matplotlib__matplotlib-18869
-matplotlib__matplotlib-23299
-mwaskom__seaborn-2848
-pallets__flask-4045
-psf__requests-1963
-pydata__xarray-3364
-pylint-dev__pylint-5859
-pytest-dev__pytest-5227
+astropy__astropy-13033
+django__django-10097
+django__django-10554
+matplotlib__matplotlib-13989
+matplotlib__matplotlib-14623
+mwaskom__seaborn-3069
+mwaskom__seaborn-3187
+pallets__flask-5014
+psf__requests-1142
+psf__requests-1724
+pydata__xarray-2905
+pydata__xarray-3095
+pylint-dev__pylint-4551
+pylint-dev__pylint-4604
+pytest-dev__pytest-10051
+pytest-dev__pytest-10081
 scikit-learn__scikit-learn-10297
-scikit-learn__scikit-learn-13497
-sphinx-doc__sphinx-8474
-sympy__sympy-11400
-sympy__sympy-20590
-sympy__sympy-21055
-pytest-dev__pytest-7432
-django__django-14999
+scikit-learn__scikit-learn-10844
+sphinx-doc__sphinx-10323
+sphinx-doc__sphinx-10435
+sympy__sympy-11618
+sympy__sympy-12096

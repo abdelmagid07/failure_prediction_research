@@ -49,6 +49,6 @@ environment:
 
 instances:
   type: swe_bench
-  subset: lite
+  subset: verified   # project decision 2026-07-18: Verified everywhere
   split: test
   # Override with --instances.filter or pilot_instances.txt via run_pilot_batch.sh

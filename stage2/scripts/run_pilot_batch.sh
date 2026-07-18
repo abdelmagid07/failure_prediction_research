@@ -6,7 +6,7 @@
 # (PyPI `sweagent` is stuck at 0.0.1); the `.[swe]` extra now installs
 # mini-swe-agent, not SWE-agent.
 #
-# Run a SWE-bench Lite pilot batch with SWE-agent locally (Docker/WSL2) while
+# Run a SWE-bench Verified pilot batch with SWE-agent locally (Docker/WSL2) while
 # Qwen3-8B inference runs on a REMOTE GPU (e.g. Colab A100) behind an
 # OpenAI-compatible endpoint.
 #
@@ -100,7 +100,7 @@ echo ""
 sweagent run-batch \
   --config "$RESOLVED_CONFIG" \
   --instances.type swe_bench \
-  --instances.subset lite \
+  --instances.subset verified \
   --instances.split test \
   --instances.filter "$FILTER" \
   --output_dir "$OUTPUT_DIR" \

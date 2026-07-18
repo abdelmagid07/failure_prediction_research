@@ -19,7 +19,16 @@ model:
   model_kwargs:
     api_base: http://localhost:8000/v1   # placeholder; set MODEL_API_BASE
     api_key: EMPTY                        # placeholder; set MODEL_API_KEY
-    temperature: 0.0
+    # Qwen3 thinking-mode sampling recipe (project decision 2026-07-18): temp 0.6,
+    # top_p 0.95, top_k 20. Qwen explicitly recommends this for thinking-on and
+    # warns that greedy (temp 0) causes repetition/degradation on the reasoning
+    # path. top_k is not an OpenAI param, so it rides in extra_body (vLLM reads it
+    # from the request body); temperature/top_p are standard and litellm forwards
+    # them. NOTE: sampling makes runs non-deterministic — log/set a per-request
+    # seed (extra_body.seed) if you need reproducibility, and vary it across
+    # rollouts if you do multiple rollouts per instance.
+    temperature: 0.6
+    top_p: 0.95
     # THINKING ON — project decision 2026-07-17. Qwen3 emits a <think> block and
     # the trajectory is generated + projected thinking-on (stage2.extract.
     # project_steps runs with enable_thinking=True). The server must be launched
@@ -37,5 +46,6 @@ model:
     # reasoning_content when the reasoning parser is active) AND a structured
     # tool call.
     extra_body:
+      top_k: 20
       chat_template_kwargs:
         enable_thinking: true

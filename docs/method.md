@@ -33,7 +33,8 @@ This is a transfer test: the axis is constructed on single-turn ICRL data, froze
 | Trajectories | On-policy only (same model that generated them) |
 | Read position | Last token of assistant output at each step |
 | Axis | Frozen after Stage 1; no refit on agent data |
-| Benchmark | SWE-bench (primary); mini-agent env for development |
+| Benchmark | SWE-bench **Verified** (`test` split) everywhere (decision 2026-07-18); mini-agent env for development |
+| Sampling | Qwen3 thinking recipe: `temperature=0.6`, `top_p=0.95`, `top_k=20` (decision 2026-07-18) |
 | Baseline | Majority-class, not 0.5 chance |
 
 ## Null results

@@ -14,10 +14,15 @@ model:
   model_kwargs:
     api_base: https://horses-second-establish-parking.trycloudflare.com/v1
     api_key: EMPTY
-    temperature: 0.0
+    # Qwen3 thinking-mode sampling recipe (temp 0.6 / top_p 0.95 / top_k 20) to
+    # match the real generation config. top_k rides in extra_body (bypasses
+    # drop_params, which would otherwise strip a non-OpenAI param).
+    temperature: 0.6
+    top_p: 0.95
     drop_params: true
-    # THINKING ON 
+    # THINKING ON
     extra_body:
+      top_k: 20
       chat_template_kwargs:
         enable_thinking: true
 
