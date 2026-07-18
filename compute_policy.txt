@@ -1,0 +1,573 @@
+Algoverse AI Research: Compute & API Access Policy
+0. TL;DR (read this even if you read nothing else)
+APIs and GPU compute are two separate budgets with two separate request paths. Do not mix them.
+APIs (calling GPT/Claude/Gemini/open models behind an endpoint): use Azure first ($1,000 startup credit), then free-tier providers and open-source models (free; see the provider directory in §4), and only as a last resort, after you've shown Azure failed, OpenRouter.
+GPU compute (training, fine-tuning, large open-model inference you run yourself): use AWS first ($200 free credit). Convert that $200 into GPU-hours and use it deliberately. Free GPU tiers (Kaggle, Colab free T4, Lightning, Modal/Beam credits; see §4) cost nothing and should carry your validation work.
+After AWS is exhausted (or genuinely unusable), each pair of teammates (2 people) is eligible for ~$20-$30 of reimbursed paid compute, which is ≈ 300 Google Colab Pro compute units. Convert those 300 units into hours for the specific GPU you pick. See the table in §6.
+Paid GPU compute is for TRAINING / FINE-TUNING and experiments that genuinely cannot run on a free tier. It is NOT for inference. If you burn paid compute units on inference that could have gone through API credits or run on a free T4, you will not be reimbursed.
+Always validate on a free T4 first. Only scale up to a paid A100/H100 once your code is correct and you've measured that you actually need the VRAM or speed.
+If you're ever unsure which budget applies, ask before you spend. Reimbursement is not guaranteed retroactively for spend that violates this policy.
+1. Am I calling a model, or am I running one?
+Almost every reimbursement dispute comes from confusing these two activities. Decide which one you're doing before you provision anything.
+
+
+API usage
+GPU compute
+ 
+What you're doing
+Sending requests to a hosted model endpoint and getting completions back
+Renting a machine with a GPU and running model code on it yourself
+Examples
+openai.chat.completions.create(...), Gemini API, Claude API, calling a model on OpenRouter
+Fine-tuning Llama-3-8B, training a probe/classifier, running a 70B open model you host yourself, large-batch local inference
+What you pay for
+Per-token (input + output)
+Per-hour the machine is on (whether or not the GPU is busy)
+Budget
+Azure → free tiers / open-source → OpenRouter
+Free tiers → AWS → Colab Pro reimbursement
+Request path
+§2
+§3-§6
+
+The trap: generating a dataset by calling GPT-4 is API usage, even though it feels like a big compute job. Running inference on a 7B open model to label 100k examples is GPU compute, but it's inference, so it has special rules (§7).
+
+The two budgets and their order of preference. Free tiers come first in both.
+2. APIs: order of preference
+You must work down this list in order. We grant the next tier only after the previous one demonstrably fails for you.
+2.1 Azure (default, try this first)
+Azure offers a $1,000 startup/credit program. This is the largest free pool available to you and should cover the overwhelming majority of API-based projects.
+Setup doc: Setting up Azure to access models
+Azure OpenAI gives you GPT-class models; Azure AI Foundry / Model Catalog also hosts many open-weight models behind an endpoint (Llama, Mistral, Phi, etc.).
+Before requesting anything else, you must show you set up Azure and either (a) it's working, or (b) it specifically didn't work for your model.
+2.2 Free-tier providers & open-source models (free, always available)
+Open-weight models (Llama, Qwen, Mistral, Gemma, Phi, DeepSeek, etc.) are directly available. Download weights from Hugging Face and run them.
+Several providers serve open models behind a free API tier: no card, no spend. Before you ask for OpenRouter, check whether one of these covers your model: Cerebras (gpt-oss-120B, GLM-4.7, Gemma at very high speed), NVIDIA Build (the widest open-model catalog: Llama, Qwen, DeepSeek, gpt-oss, GLM, Mistral…), Mistral La Plateforme (Mistral models only, generous free limits). Setup for each is in §4.
+If your experiment can be done with an open model, you don't need a paid API at all. You either:
+call it via a free/credited hosted endpoint (Azure AI Foundry, or a free-tier provider from §4), or
+run it yourself on GPU compute, which moves you into §3-§7.
+This tier is free in the API sense, but if you host the model yourself, the GPU time is governed by the compute policy.
+2.3 OpenRouter (last resort, gated)
+OpenRouter is granted only after you have demonstrated that:
+you set up Azure, and
+Azure either could not serve the model you need, or you could not get access to it, and
+no suitable open-source model or free-tier provider (§4) covers your need.
+When you request OpenRouter, attach evidence: the Azure error, the missing model in the catalog, or screenshots of the access failure.
+One API key per team. Duplicate requests won't be processed.
+Why this order? Azure credits are the cheapest to us (we have a large pooled grant), open models and free tiers are free, and OpenRouter is real out-of-pocket spend. We spend in that order to keep the program sustainable.
+3. GPU compute: order of preference
+This is for workloads you run yourself on a GPU: training, fine-tuning, RL, large-batch local inference of open models, custom kernels, etc.
+3.1 Free GPU tiers (always first)
+Free T4s are everywhere. Colab free tier and Kaggle (~30 GPU-hrs/week of 2× T4) cost nothing.
+Free credits on Lightning AI, Modal, and Beam add real GPU-hours per person on top. Setup for each is in §4.
+All validation, debugging, and small-model work belongs here.
+3.2 AWS (default paid pool, try this before reimbursement)
+AWS gives $200 of free compute (via the credit program). This is your first compute pool and must be used before paid Colab reimbursement is approved.
+Setup doc: AWS Credit Program
+Convert $200 into GPU-hours before you start so you know how long you can run. See §5.
+AWS is best for: longer training runs, multi-hour jobs, when you want a persistent instance, or when you need a specific instance type.
+3.3 Google Colab Pro, reimbursed (after AWS)
+Once AWS credits are exhausted or genuinely unusable for your case, each 2-person pair on a team is eligible for ~$20-$30 of reimbursed Colab Pro spend ≈ 300 compute units.
+You pay for Colab Pro / compute units, keep the receipt, and submit for reimbursement.
+Colab is best for: short, interactive, notebook-driven experiments; quick A100 bursts; iterating on training code.
+3.4 Request form (both API keys and compute)
+All API-key and compute-reimbursement requests go through the single Airtable form:
+API Key & Compute Reimbursement Request
+The form asks for: Name, Email, Student/Mentor, Team Acronym (e.g. bob-abcd), Cohort, Project Title; which model access you need (Gemini / OpenAI/Anthropic via OpenRouter / Azure startup credits); whether you need GPUs; and whether you previously requested compute. One key per team.
+Lambda Cloud and the old Google Form are deprecated. Do not use them.
+
+4. Free-tier provider directory: accounts, limits, setup
+These tiers cost the program nothing, so they sit before every paid pool: the API tiers (4a-4c) come between Azure and OpenRouter, and the GPU tiers (4d-4g) carry your validation work (and often small training runs) before you touch AWS credit or reimbursed Colab.
+Unlike paid keys (one per team), free-tier accounts are per-person: every provider below prohibits key/account sharing, and limits apply per account, so each teammate signs up individually.
+All numbers below were checked against the providers' official pages on July 11, 2026. Free tiers change without notice; the per-provider limits links are authoritative.
+Provider
+Type
+Free tier (as of Jul 2026)
+Signup needs
+Best for
+Setup
+ 
+ Cerebras
+API (open models)
+1M tokens/day; 5 req/min; 30K tokens/min
+Email; no card
+gpt-oss-120B / GLM-4.7 at ~1000-3000 tok/s
+§4a
+ NVIDIA Build
+API (open models)
+No credit cap or expiry; ~40 req/min
+Email; no card; adult ToS
+Widest open-model catalog (Llama, Qwen, DeepSeek, gpt-oss, GLM…)
+§4b
+ Mistral
+API (Mistral models only)
+~1 req/s; 500K tokens/min; ~1B tokens/month
+Email; possible SMS; no card
+High-volume batch jobs on Mistral models
+§4c
+ Modal
+GPU (serverless, code-first)
+$30/month per workspace
+GitHub or Google; no card
+Real training runs: ~50 T4-hrs or ~14 A100-hrs/mo
+§4d
+ Beam
+GPU (serverless, code-first)
+$30/month
+Email/GitHub/Google; no card
+Modal alternative: ~43 RTX-4090-hrs/mo (no T4s)
+§4e
+ Lightning AI
+GPU (browser Studios) + API
+15 credits ($15)/month + 30M API tokens/mo
+Email (.edu = instant) + real phone
+Colab-like ease: ~75 T4-hrs/mo
+§4f
+ Kaggle
+GPU (notebooks)
+30 GPU-hrs/week (2× T4 or P100)
+Email + phone verify
+Free validation and small training; biggest free pool
+§4g
+
+What stacking these gives each student: 30 free T4-class GPU-hrs/week on Kaggle, Colab's free T4 on top, plus $75/month of recurring free GPU credit (Modal $30 + Beam $30 + Lightning $15), plus three free API tiers for open-model inference. Most projects can get through validation and mid-size experiments without spending a dollar.
+
+ 4a. Cerebras Inference (free API)
+Serves a small set of open models on Cerebras wafer-scale hardware at very high speed (~1000-3000 tok/s) through an OpenAI-compatible API. Use it when you need gpt-oss-120B or GLM-4.7 for evals or data generation and Azure doesn't serve them.
+Free tier (official rate-limits page):
+5 requests/min, 30K tokens/min, 1M tokens/day per account, the same for every model. Enough for sequential experiments; too slow for parallel eval loops.
+Context capped at ~65K on free (131K paid); max output 32K.
+Catalog is only three serverless models: gpt-oss-120b (production), zai-glm-4.7 (preview), gemma-4-31b (preview, vision). Llama and Qwen have been retired from the serverless API.
+Make an account:
+Sign up at cloud.cerebras.ai: email signup, no card, no waitlist.
+Left nav → API Keys → create a key (csk_…) → export CEREBRAS_API_KEY=...
+Check your real limits under the console's Limits section (authoritative per account).
+First request (OpenAI SDK works as-is):
+from openai import OpenAI
+client = OpenAI(base_url="https://api.cerebras.ai/v1", api_key=os.environ["CEREBRAS_API_KEY"])
+r = client.chat.completions.create(model="gpt-oss-120b", messages=[{"role": "user", "content": "hi"}])
+
+
+Watch out:
+5 req/min means no parallel requests; batch sequentially with backoff.
+Preview models (zai-glm-4.7, gemma-4-31b) "may be discontinued on short notice"; GLM-4.6 was killed with ~2 months' notice. Don't hard-code a preview model into a semester-long pipeline without a fallback; check the deprecation page.
+ToS prohibits sharing keys or creating accounts for others; one account per student. Minimum age 13.
+Paid tier unlocks at a $10 self-serve deposit (10× limits) if a team ever needs it; ask before spending.
+
+ 4b. NVIDIA Build (free API)
+NVIDIA's hosted model catalog (build.nvidia.com) offers the widest free open-model selection of any provider: Llama 4 / 3.x, gpt-oss-120B/20B, DeepSeek V4, Qwen 3.5, Mistral Large 3, GLM-5.2, Kimi K2.6, Nemotron, Gemma, and ~100 more, all behind one OpenAI-compatible endpoint. Explicitly licensed for research/prototyping.
+Free tier:
+The old credit system (1,000 free requests) is discontinued; there's now no credit cap and no expiry, just per-model rate limits: ~40 requests/min in practice, shared across all models on your key. Your actual limit shows in the top-right of build.nvidia.com after login. No official path to raise it.
+Make an account:
+Go to build.nvidia.com, open any model page, click Get API Key, then create an NVIDIA account with email + password (personal Gmail works, no card).
+Or generate keys later at Settings → API keys. Keys start with nvapi-; copy immediately, shown once.
+First request:
+from openai import OpenAI
+client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
+r = client.chat.completions.create(model="meta/llama-3.3-70b-instruct", messages=[...])
+
+
+List every available model ID at https://integrate.api.nvidia.com/v1/models.
+Watch out:
+NVIDIA may use your prompts and outputs to train its models (Trial ToS). Do not send unpublished datasets, PII, or sensitive human-subjects data through it.
+The Trial ToS must be accepted by a legal adult; if you're under 18, have a parent/guardian create/authorize the account.
+Hot models throw 429s well below 40 req/min at peak, so add retry/backoff.
+Ignore the "Deploy" tab on model pages (that's self-hosted NIM containers, needs your own GPU). You want the hosted "Free Endpoint".
+
+ 4c. Mistral La Plateforme (free API)
+Mistral's developer platform (now branded "Mistral AI Studio") has a free mode with very large token allowances, but it serves only Mistral's own models (Mistral Large 3 / Medium 3.5 / Small 4, Magistral reasoning, Devstral & Codestral coding, embeddings, OCR, Voxtral audio). Use it when a Mistral model fits your experiment and you need volume.
+Free tier:
+Free mode is enabled by default, no card. Mistral no longer publishes exact numbers; check Admin Console → Limits (admin.mistral.ai) after signup. Third-party consensus (July 2026): ~1 request/sec, 500K tokens/min, ~1B tokens/month. Huge volume, low request rate.
+Make an account:
+Sign up at console.mistral.ai with your email; expect a possible SMS verification step.
+Before sending any research data: go to admin.mistral.ai → Privacy → opt out of data training. The free plan may use your inputs/outputs for training by default (their policy); the opt-out is self-serve.
+Console → API Keys → create key (shown once).
+First request (pip install mistralai):
+from mistralai import Mistral
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+r = client.chat.complete(model="mistral-large-latest", messages=[{"role": "user", "content": "hi"}])
+
+
+(Endpoint https://api.mistral.ai/v1/chat/completions is OpenAI-style if you prefer the OpenAI SDK.)
+Watch out:
+Flip the training opt-out first (step 2). And avoid "Labs" models (e.g. labs-leanstral); those train on your data regardless of opt-out.
+Limits are per organization, shared across all its workspaces; use one account per student, never a shared org.
+~1 req/s means no parallel eval loops; rate-limit client-side.
+Mistral deprecates model versions aggressively; use -latest aliases and check the models overview.
+
+ 4d. Modal (free GPU credits)
+Serverless GPU platform: you write Python functions with decorators, Modal runs them in containers on the GPU you name. Steeper learning curve than Colab (code-first, container images defined in Python, though its hosted Notebooks soften that), but the free credit is real and monthly.
+Free tier (pricing):
+$30/month per Starter workspace, resets monthly, no rollover, no card at signup.
+What $30 buys (GPU rates, July 2026; CPU/RAM billed on top): T4 $0.59/hr → ~50 hrs, L4 $0.80 → ~37 hrs, A10 $1.10 → ~27 hrs, A100-40GB $2.10 → ~14 hrs, A100-80GB $2.50 → ~12 hrs, H100 $3.95 → ~7.5 hrs.
+Starter caps: 10 concurrent GPUs, 100 containers, 3 workspace seats.
+Budget honestly: plan $30/person/month, not $60. Credits attach to the workspace, a shared workspace's $30 is split across its members, inviting members requires adding a payment method, and whether extra workspaces even receive the credit is unconfirmed. Don't build a plan around workspace-stacking.
+Make an account:
+Sign up at modal.com/signup with GitHub or Google; no card.
+pip install modal, then modal setup (opens browser, stores a token).
+First GPU function: save as hello_gpu.py, run modal run hello_gpu.py:
+import modal
+
+app = modal.App("hello-gpu")
+image = modal.Image.debian_slim().uv_pip_install("torch")
+
+@app.function(gpu="T4", image=image)
+def check():
+    import torch
+    return torch.cuda.get_device_name(0)
+
+
+Watch out:
+With no card on file, workloads stop when the $30 runs out: no surprise bills, but a long training run can be cut off mid-month. Checkpoint.
+Containers bill while idle until scaledown (default 60 s); don't raise scaledown_window casually.
+Don't set region= (adds a 1.5-1.75× price multiplier).
+Requesting gpu="A100" may be free-upgraded to the 80 GB variant; gpu="H100" may get H200. Nice, but pin ("H100!") if you need reproducible hardware.
+
+ 4e. Beam Cloud (free GPU credits)
+A smaller Modal-alike: same decorator-based serverless GPU model (@function, @endpoint, @task_queue), open-source engine, $30 free credit every month (pricing) with no card.
+Free tier:
+$30/month, recurring, verified on their pricing, signup, and blog pages. 5 concurrent GPU containers.
+No T4s. Cheapest GPU is RTX 4090 (24 GB) $0.69/hr → ~43 hrs/mo; A6000 (48 GB) $0.82 → ~36 hrs; L40S $1.75 → ~17 hrs; A100-80GB $2.25 → ~13 hrs; H100 $3.55 → ~8.5 hrs (vCPU $0.045/hr + RAM $0.0162/GB/hr on top).
+Make an account:
+Sign up at platform.beam.cloud: email magic-link, GitHub, Google, or GitLab; no card.
+Install the CLI: pip install beam-client (package is beam-client, not beam).
+Authenticate: beam configure default --token <token from dashboard>.
+Decorate a function and deploy:
+from beam import function
+
+@function(gpu="A10G", cpu=1, memory="4Gi")
+def train():
+    ...
+
+
+Watch out:
+Keep-warm billing: endpoints keep the container alive 180 s after each request by default; their own docs example shows a 100 ms request billing 301 s. Set keep_warm_seconds low; use @function/@task_queue (10 s default) for training-style jobs, not @endpoint (which is for ≤180 s sync tasks).
+What happens when the $30 runs out is undocumented; assume workloads stop; checkpoint.
+Beam is a small YC company (open-source engine mitigates lock-in, and it's actively maintained), so it's fine as a supplementary pool, don't make it your project's only home.
+
+ 4f. Lightning AI (free GPU credits)
+Browser "Studios": a persistent VS Code-like environment (notebooks, terminal, SSH) where you develop on a free CPU machine and switch to a GPU with one click, keeping your files and environment. The closest of these platforms to Colab in ease of use. Also bundles a hosted open-model API.
+Free tier (pricing):
+15 credits/month (1 credit = $1), no card, expires monthly. That's ≈75 T4-hrs (T4 ≈ $0.19-0.20/hr interruptible), ≈31 L4-hrs, or ≈10 A100-40GB-hrs (A100-40 $2.19/hr) per month.
+One free 4-core CPU Studio can run 24/7 (needs a restart every 4 h); up to 2 concurrent GPUs; A100/H100/H200 sessions capped at 4 h on free; 1 Studio at a time.
+Model APIs: 30M free tokens/month (15 req/min) on hosted open models (gpt-oss-20B/120B, Gemma 4, DeepSeek V4, Nemotron 3) via pip install litai or the OpenAI SDK (docs). A fourth free API tier, effectively.
+Make an account:
+Sign up at lightning.ai/sign-up (email magic-link, Google, or GitHub). Use your .edu email; it verifies instantly; personal Gmail can sit in a verification queue.
+Verify a real (non-VoIP) phone number; virtual numbers are rejected. One account per person; duplicate-account farming gets suspended.
+New Studio → develop/debug on the free CPU machine → machine selector (top right) → pick a GPU → Switch. Environment, packages, and files persist across the switch.
+Watch out:
+Studios auto-sleep after 10 min idle (running jobs keep them awake) and restart on CPU, so re-attach the GPU after a sleep.
+Credits expire at month end; when they run out Lightning gracefully shuts down workloads.
+The free Studio's 4-hour restart is a click, but an unattended overnight run on it will die at the 4 h mark, so put long runs on a GPU Studio with background execution instead.
+
+ 4g. Kaggle Notebooks (free GPU)
+Free Jupyter notebooks with 2× T4 (16 GB each) or 1× P100, 30 GPU-hours/week (docs). This is the largest recurring free GPU pool available, and where your validation work should live alongside Colab's free T4.
+Free tier:
+30 GPU-hrs/week baseline ("or sometimes higher depending on demand"), resets Saturday 00:00 UTC. Sessions up to 12 h. TPU v3-8 is a separate 20 hrs/week pool.
+2× T4 and P100 draw from the same 30-hr meter; T4 ×2 is the best value (two GPUs per quota-hour; 32 GB combined VRAM fits QLoRA on 7B easily).
+20 GB persistent output per notebook (/kaggle/working); private datasets up to 200 GB.
+Colab Pro cross-credit: linking your Kaggle account to an active Colab Pro subscription grants +15 GPU-hrs/week (experimental promo, see docs). If your pair is already on reimbursed Colab Pro (§3.3), claim this.
+Make an account:
+Sign up free at kaggle.com (email or Google).
+Profile → Settings → Phone Verification, required to unlock GPUs and internet access. If SMS fails (VoIP numbers, some regions), use the manual activation form.
+New Notebook → Settings pane → Accelerator → GPU T4 x2 (session restarts; you may queue at busy times). Internet toggle is in the same pane (on by default).
+Custom data: upload as a private Kaggle Dataset (Datasets → New Dataset, ZIP auto-unzips) → Add Input in the notebook; it mounts read-only under /kaggle/input/.
+Watch out:
+The quota meter runs the whole time a session is open, even idle; stop sessions from the Active Events panel (bottom left) instead of just closing the tab.
+"Save & Run All" (background execution) runs in a separate session; concurrent batch sessions all burn quota; cancel duplicates.
+No shell terminal; prefix shell commands with ! in cells. The environment is a fixed Docker image.
+5. Converting free AWS credit ($200) into GPU-hours
+$200 does not buy a lot of hours; it depends entirely on the instance. Pick the smallest instance that fits your model. Approximate on-demand US-region pricing (always check the live AWS pricing page; rates change and vary by region):
+Instance
+GPU
+VRAM
+~On-demand $/hr
+Hours from $200
+Good for
+ 
+g4dn.xlarge
+1× T4
+16 GB
+~$0.53
+~375 hrs
+Validation, small models (≤3B), inference
+g6.xlarge
+1× L4
+24 GB
+~$0.80
+~250 hrs
+Best value: inference + 4-bit/QLoRA ≤7B; cheaper than A10G at same VRAM
+g5.xlarge
+1× A10G
+24 GB
+~$1.01
+~200 hrs
+LoRA ≤7B; faster than L4 for training
+g5.2xlarge
+1× A10G
+24 GB
+~$1.21
+~165 hrs
+Same, more CPU/RAM for data loading
+g6e.xlarge
+1× L40S
+48 GB
+~$1.86
+~107 hrs
+Only single big-VRAM AWS GPU: 7-13B LoRA, 13B inference
+p3.2xlarge
+1× V100
+16 GB
+~$3.06
+~65 hrs
+Older training jobs (avoid if A10G/L4 fits)
+p4d.24xlarge
+8× A100
+40 GB ea
+~$32.77
+~6 hrs
+Multi-GPU 13B-70B training only
+p5.48xlarge
+8× H100
+80 GB ea
+~$98
+~2 hrs
+Large-scale only; will vaporize $200
+
+Key takeaways:
+A single cheap GPU (T4/A10G) buys you hundreds of hours. The big 8-GPU boxes (p4d, p5) drain $200 in an afternoon.
+Use Spot instances where your job can checkpoint/resume. They are typically ~60-70% cheaper than on-demand (e.g. a Spot A10G can be ~$0.30-0.40/hr), which can roughly 3× your effective hours.
+For most jobs the best value is g6 (L4, 24 GB), cheaper than the A10G g5 with the same VRAM. AWS has no cheap single A100; A100s come only in the 8-GPU p4d/p4de. The only single big-VRAM AWS GPU is the L40S (48 GB) in g6e.xlarge. If you specifically need an A100/H100 interactively, Colab Pro is cheaper than renting an 8-GPU box to use one GPU (§6).
+Always Stop/terminate the instance when you're done. You are billed per wall-clock hour the instance is running, GPU idle or not. A forgotten instance overnight can eat your entire credit. (This is exactly how the old Lambda runs racked up $30-$55 per team; see history in §11.)
+Stopping still costs money. A stopped instance no longer bills for the GPU, but its EBS volume keeps billing (~$0.08-0.10/GB-month) until you terminate the instance and delete the volume/snapshots. At end of project, terminate; don't just stop.
+6. Converting the $20-$30 / ~300 Colab Pro compute units into GPU-hours
+Budget: ~$20-$30 ≈ 300 compute units per 2-person pair. (Colab sells units at roughly $10 per 100 via Pay-As-You-Go; Pro is $9.99/mo bundling 100 units. So ~300 units ≈ ~$30.)
+Compute units burn at different rates per GPU. Approximate consumption (Colab rates fluctuate, so check the live Compute units meter in your session; treat these as planning numbers, not contractual):
+Colab runtime
+VRAM
+~Units / hour
+Hours from 300 units
+Notes
+ 
+T4 (free tier too)
+16 GB
+~1.8-2
+~150-165 hrs
+Validate here first. Costs almost nothing.
+L4
+22 GB
+~4.8
+~62 hrs
+Good mid-tier; more VRAM than T4
+V100 (rarely offered now)
+16 GB
+~5
+~60 hrs
+Legacy
+A100 (40 GB)
+40 GB
+~12-15
+~20-25 hrs
+High-RAM; for 7B-13B fine-tuning
+TPU v2-8
+n/a
+~1.8
+~165 hrs
+Only if your code is JAX/TF-friendly
+
+How to read this: 300 units is ~25 A100-hours or ~150 T4-hours. If you waste your A100 time on debugging and idle notebooks, you'll burn the whole budget in a few days. The discipline that makes 300 units last:
+Debug and validate on free T4 until your training loop runs end-to-end on a tiny subset without errors.
+Switch to A100 only for the real run, and only for as long as the run takes.
+Disconnect the runtime the moment the job finishes. Colab keeps charging units while an A100 session is connected and idle (e.g. you walked away with the notebook open). Idle A100 time is the #1 way teams blow their units.
+Keep high-RAM off unless you need it; it adds to the burn rate.
+If the budget framing you heard was 200-300 compute hours, that was shorthand. The hard cap is 300 compute units ($20-$30) per pair. What that buys in hours depends entirely on which GPU you choose (above): a cheap GPU gives many hours, an A100 gives ~20-25 hours.
+7. The inference rule (the one that costs people their reimbursement)
+Paid GPU compute is reimbursed for training and fine-tuning workloads (and experiments that genuinely cannot run free). It is NOT reimbursed for inference.
+What counts as inference (NOT reimbursable on paid GPU)
+Calling a model to generate text/labels/data, scoring a benchmark, running evals, generating samples, embedding a corpus.
+These should go through one of:
+API credits (Azure → free-tier provider / open-source endpoint → OpenRouter) for hosted models, or
+the free T4 (Colab free tier, Kaggle, or AWS free credit) for small/mid open models you host.
+What counts as compute (reimbursable)
+Fine-tuning / LoRA / full SFT, pre-training, RLHF/DPO/RL, training probes or classifiers, distillation, anything that updates weights.
+Custom GPU work (kernels, profiling) that genuinely needs the hardware.
+Why
+Inference is cheap per-token through API credits, free on the §4 API tiers for many open models, and free on a T4 for small models. Renting a paid A100 to do inference that could've gone through your $1,000 Azure pool, a free API tier, or run free on a T4, is exactly the wasteful spend this policy exists to prevent. We will decline reimbursement for paid-GPU inference.
+The gray zone: large open-model inference
+Suppose you need to run a 70B open model that won't fit on a T4.
+First check whether it's available through Azure AI Foundry or a free-tier endpoint (§4); Cerebras and NVIDIA Build both serve large open models. If so, that's API usage; use the free tier / credits.
+If you genuinely must self-host (model not on any endpoint, or you need logits/internals), this is borderline: get pre-approval on the Airtable form before spending, explain why API/free tier can't do it, and prefer batched, quantized (4-bit/8-bit), Spot/short runs. Unapproved paid-GPU inference is at your own risk.
+Before you conclude you need a bigger GPU, fix your serving stack. Naive per-row model.generate() leaves the GPU mostly idle. vLLM (paged KV cache + continuous batching) is commonly 10-24× faster in tokens/sec, and 4-bit quantization halves or quarters the weight footprint. The combination often makes a job that looked like it needed an A100 finish on a T4/L4, which keeps it on the free tier and out of paid-GPU territory entirely.
+8. Choosing the right GPU (VRAM-first decision tree)
+Pick the smallest GPU that fits, then scale up only if you've measured a real need.
+Step 1: do the VRAM math. VRAM is dominated by a handful of terms. Estimate them before you pick a GPU.
+Bytes per parameter, by workload. Multiply by parameter count to get the weight/state footprint:
+Workload
+Bytes / param
+7B model
+Why
+ 
+Inference, fp16/bf16
+2
+~14 GB
+weights only
+Inference, 8-bit
+1
+~7 GB
+bitsandbytes int8
+Inference, 4-bit (NF4)
+~0.5
+~3.5 GB
+QLoRA-style quant; fits a T4
+LoRA (fp16 base)
+~2 + small
+~16-20 GB
+frozen fp16 base + tiny trainable adapters & their optimizer
+QLoRA (4-bit base)
+~0.5 + small
+~6-10 GB
+4-bit frozen base; fits a T4/L4
+Full fine-tune (mixed-prec Adam)
+~16
+~112-128 GB
+2 weights + 2 grad + 4 fp32 master + 4+4 Adam m/v
+
+On top of the weights, add activations (scale with batch size × sequence length; gradient checkpointing trades extra compute to shrink them) and, for inference, the KV cache:
+KV-cache bytes ≈ 2 (K,V) × n_layers × n_kv_heads × head_dim × seq_len × batch × bytes_per_elem
+
+
+Example: Llama-3-8B (32 layers, 8 KV heads w/ GQA, head_dim 128), 8k context, batch 1, fp16: ≈ 2×32×8×128×8192×1×2 ≈ 1.1 GB. At batch 16 that's ~17 GB, larger than the weights of a quantized model. Long-context or high-throughput inference is usually bound by the KV cache rather than the weights, which is why a serving stack with a paged KV cache (vLLM) matters more than raw GPU size.
+Translating the math into a GPU pick (weights + modest activations; full-FT column uses the ~16 bytes/param above):
+Model size
+Inference (fp16)
+LoRA / QLoRA
+Full fine-tune (Adam)
+ 
+≤1.5B
+~3-4 GB → T4
+~6-8 GB → T4
+~24 GB → A100-40
+3B
+~6-7 GB → T4
+~12 GB (QLoRA: T4) → L4/A10G
+~48 GB → A100-80
+7-8B
+~16 GB → A10G/L4
+~18-24 GB (QLoRA: ~8 GB, T4/L4) → A10G/A100
+~128 GB → multi-A100/H100
+13B
+~28 GB → L40S/A100-40
+~30-40 GB (QLoRA: ~12 GB, L4/A10G) → A100
+~210 GB → multi-GPU (FSDP/ZeRO-3)
+70B
+4-bit → multi-GPU
+QLoRA → A100-80/H100
+large cluster (out of scope)
+
+Step 2: reduce VRAM before you upgrade hardware. Try, in order:
+Quantization. 4-bit NF4 (bitsandbytes/QLoRA) cuts the base model to 0.5 bytes/param, which routinely turns a 7B fine-tune into something that fits a free T4 (16 GB). 8-bit (1 byte/param) is the milder option when 4-bit hurts quality.
+LoRA/PEFT instead of full fine-tuning. You train <1% of the parameters, so the Adam/grad/master-weight states (the ~16 bytes/param term above) shrink to almost nothing.
+Gradient checkpointing, smaller batch size + gradient accumulation (simulate a large effective batch on small VRAM), shorter sequence length.
+Mixed precision (bf16 preferred over fp16 for training stability: same memory, no loss-scaling headaches).
+For multi-GPU full fine-tunes, FSDP / DeepSpeed ZeRO-3 shards weights and optimizer states across GPUs (vs. plain DDP, which replicates them).
+Only then, request a bigger GPU.
+Step 3: H100 / high-RAM. Reserved for jobs that genuinely need >40 GB or maximum throughput on a real training run. Justify it on the form. Don't default to it because it's the biggest.
+9. Cost-control rules (mandatory)
+These are conditions of reimbursement, not suggestions:
+T4-first. Validate correctness on a free T4 before touching paid hardware. The zero-cost tier is bigger than people realize: Colab free T4, Kaggle (~30 GPU-hrs/week, 2× T4 or P100), Lightning AI's free monthly credits, and Modal/Beam credits. Use it to get the training loop running end-to-end on a tiny subset before you spend a cent. (Run gpu_optimization_checker if your team has it; it enforces this.)
+Never leave an instance/runtime idle. Stop AWS instances and disconnect Colab runtimes the moment a job ends. Idle-but-running time is billed. (And remember: a stopped AWS instance still bills for its EBS volume, so terminate at end of project, §5.)
+Watch GPU utilization, not only uptime. Run watch -n1 nvidia-smi. If utilization sits near 0% while the box is on, you're paying full price for a GPU starved by the CPU dataloader. Raise num_workers, pre-tokenize/cache the dataset, or drop to a smaller instance. A 30%-utilized A100 is worse value than a saturated L4.
+Checkpoint your training so a Spot interruption or disconnect doesn't cost you the whole run. AWS Spot gives a 2-minute interruption warning, so checkpoint frequently enough that you never lose more than a few minutes.
+Use Spot/preemptible on AWS for anything resumable (~60-70% savings).
+Estimate before you run. Multiply your expected hours by the $/hr (AWS) or units/hr (Colab) from §5-§6. If the estimate exceeds your budget, redesign (quantize, subsample, fewer epochs) before running, not after.
+One key/account per team. No duplicate requests. (Free-tier accounts in §4 are per-person; that's the one exception, because they cost nothing.)
+Pre-approve anything unusual (multi-GPU, H100, self-hosted large-model inference) on the form.
+10. Scenario matrix
+#
+Scenario
+Bucket
+What to do
+ 
+1
+Generate a 50k synthetic dataset with GPT-4
+API
+Azure credits. Not compute.
+2
+Fine-tune Llama-3-8B with LoRA
+Compute
+AWS g5/Spot, or Colab A100. Reimbursable.
+3
+Run a benchmark eval against Claude
+API
+Azure → (justify) OpenRouter. Not compute.
+4
+Label 100k rows with a 7B open model you host
+Compute (inference)
+Borderline: prefer a free API tier (§4) / Azure endpoint / free T4; pre-approve if you must self-host on paid GPU.
+5
+Train a linear probe on hidden states
+Compute
+T4 is usually enough. Reimbursable.
+6
+Need GPT-4 but Azure won't grant the model
+API
+Submit Azure failure evidence → OpenRouter granted.
+7
+DPO/RLHF on a 13B model
+Compute
+Multi-A100 (p4d Spot) or staged Colab A100. Pre-approve; budget tightly.
+8
+Left an A100 on overnight
+Compute
+Billed for idle time; likely over budget and not fully reimbursed. Disconnect runtimes.
+9
+Pre-train a small model from scratch
+Compute
+Estimate hours first; T4/L4 for tiny, A100 for the real run.
+10
+Just exploring / debugging code
+Compute
+Free T4 only. Never debug on a paid A100.
+11
+Model fits in 24 GB but you grabbed an H100
+Compute
+Use A10G/L4 instead; H100 spend here won't be justified.
+12
+Embedding a large corpus (open model)
+Compute (inference)
+Free T4 if it fits; otherwise API/endpoint. Not a paid-GPU training job.
+13
+Need gpt-oss-120B or a 70B+ open model for evals
+API
+Free tier first: Cerebras / NVIDIA Build (§4). Not paid GPU.
+
+11. History: why these numbers
+We previously ran GPU compute on Lambda Cloud, billed per-hour. Real per-team spend over a single ~24-hour window ranged from $0.20 to $55, with the high outliers being A100/H100/GH200 instances left running rather than heavy useful work:
+H100 (80 GB) team: $55 in ~24h
+GH200 (96 GB) team: $39
+A100 (40 GB) team: $29
+Most disciplined teams: <$3 (A10/A100 used briefly, then stopped)
+The lesson behind this policy: the GPU you pick and whether you shut it off matter far more than the total hours. A disciplined team on a T4/A10G with Spot pricing gets more useful work out of $20-30 than an undisciplined team burning an idle H100. Lambda was retired because credit setup was painful (credit cards, multi-step, account-tied credits); Colab Pro reimbursement + AWS free credit replaced it as a simpler, capped model.
+12. Requesting & getting reimbursed: checklist
+To request API access:
+Set up Azure first (see doc). Confirm whether it serves your model.
+Check the free-tier providers (§4) for your model.
+If neither can, gather evidence (error / missing model).
+Submit the Airtable form; request OpenRouter only with that evidence.
+To request / reimburse compute:
+Used your AWS $200 credit first (or documented why it's unusable).
+Validated on free T4; confirmed you need the paid GPU.
+Estimated hours × rate ≤ your ~300-unit ($20-30) per-pair budget.
+Pre-approved if multi-GPU / H100 / self-hosted large-model inference.
+Workload is training/fine-tuning, not inference.
+Keep the Colab Pro receipt; submit via the Airtable form.
+You will likely NOT be reimbursed if:
+The spend was on inference that should have used API credits, a free API tier, or a free T4.
+You exceeded ~$30/pair without pre-approval.
+An instance/runtime was left idle and running.
+You skipped AWS free credit without justification.
+You used a bigger GPU than your VRAM math justified.
+13. Questions
+If you're unsure which budget a workload falls under, ask on the form or in your team channel before spending. A 30-second question is cheaper than an unreimbursed A100 run. Pricing, free-tier limits, and Colab unit rates change, so when in doubt, check the live AWS pricing page, the provider's own limits page (linked per-provider in §4), and the Colab compute-units meter rather than relying on the planning numbers above.
+
+

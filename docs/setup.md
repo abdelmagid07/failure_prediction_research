@@ -36,11 +36,15 @@ Colab may ship a stale `vllm` binary with the wrong CUDA build. `serve_qwen_cola
 
 Stage 2 runs with `enable_thinking=True` (project decision 2026-07-17), passed per request as `chat_template_kwargs`. Launch the server with `--enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3` so the `<think>` text is split into `reasoning_content` and tool calls still parse; projection re-renders both through the chat template.
 
+## Self-hosted GPU (AWS, no tunnel)
+
+For long batches the Colab + cloudflared tunnel is fragile (per-request timeout, rotating URL). The alternative is a single EC2 GPU VM running vLLM + Docker + mini-swe-agent together, so the agent hits vLLM over `localhost`. Serve with `stage2/scripts/serve_qwen.sh` (same parser flags as Colab, auto-picks `--dtype`). Full sequence + compute-policy classification in [aws_runbook.md](aws_runbook.md).
+
 ## Trajectory environments
 
 **Devbugs harness** (`stage2/devbugs/`): hand-written bug-fix tasks, no Docker. Output is SWE-agent-compatible `.traj` JSON.
 
-**SWE-bench** (`scripts/run_mini_swe_batch.sh`): mini-swe-agent + Docker locally, Qwen inference via vLLM tunnel. Ingest with `--format mini-swe-agent`. (Legacy `run_pilot_batch.sh` / SWE-agent kept until the mini path is verified.)
+**SWE-bench** (`scripts/run_mini_swe_batch.sh`): mini-swe-agent + Docker locally, Qwen inference via vLLM — either a Colab tunnel or a self-hosted `localhost` endpoint ([aws_runbook.md](aws_runbook.md)). Ingest with `--format mini-swe-agent`. (Legacy `run_pilot_batch.sh` / SWE-agent kept until the mini path is verified.)
 
 ## Offline wiring tests
 
