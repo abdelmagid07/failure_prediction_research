@@ -40,6 +40,8 @@ Stage 2 runs with `enable_thinking=True` (project decision 2026-07-17), passed p
 
 For long batches the Colab + cloudflared tunnel is fragile (per-request timeout, rotating URL). The alternative is a single EC2 GPU VM running vLLM + Docker + mini-swe-agent together, so the agent hits vLLM over `localhost`. Serve with `stage2/scripts/serve_qwen.sh` (same parser flags as Colab, auto-picks `--dtype`). Full sequence + compute-policy classification in [aws_runbook.md](aws_runbook.md).
 
+METHOD.tex pins: mini-swe-agent **2.4.5**, step budget **60**, sampling 0.6/0.95/20, readout = mean cosine over generated tokens. See [method.md](method.md).
+
 ## Trajectory environments
 
 **Devbugs harness** (`stage2/devbugs/`): hand-written bug-fix tasks, no Docker. Output is SWE-agent-compatible `.traj` JSON.

@@ -24,15 +24,23 @@
 #   SUBSET           SWE-bench subset: verified | lite | <dataset path> (default: verified)
 #   SPLIT            dataset split (default: test)
 #   WORKERS          parallel workers (default: 1)
-#   STEP_LIMIT       override the base config's agent.step_limit (optional)
+#   STEP_LIMIT       agent.step_limit (default: 60, the METHOD.tex step budget)
+#   ROLLOUTS         seed-only rollouts per task (default: 1; METHOD.tex uses 5)
+#   SEED_BASE        first sampling seed; rollouts use SEED_BASE..SEED_BASE+ROLLOUTS-1 (default: 0)
 #   OUTPUT_DIR       default data/trajectories/mini_swe_run_<timestamp>
 #   SKIP_PREFLIGHT   set to 1 to skip the endpoint connectivity check
+#
+# Multi-rollout layout: with ROLLOUTS>1 each rollout is generated with a distinct
+# sampling seed (injected as extra_body.seed) and written to OUTPUT_DIR/r<seed>/,
+# so the same task appears once per seed. ingest_batch stamps task_id/seed from
+# this layout. With ROLLOUTS=1 the run stays flat in OUTPUT_DIR (seed unset).
 #
 # Usage:
 #   export MODEL_API_BASE="https://<tunnel>.trycloudflare.com/v1"
 #   bash scripts/run_mini_swe_batch.sh                      # filter by config/pilot_instances.txt
 #   bash scripts/run_mini_swe_batch.sh config/pilot_instances.txt
 #   SUBSET=verified WORKERS=4 bash scripts/run_mini_swe_batch.sh
+#   ROLLOUTS=5 bash scripts/run_mini_swe_batch.sh          # METHOD.tex 5 rollouts/task
 # Any extra args after the instances file are forwarded to `mini-extra swebench`.
 
 set -euo pipefail
@@ -44,7 +52,14 @@ MODEL_NAME="${MODEL_NAME:-hosted_vllm/Qwen3-8B}"
 SUBSET="${SUBSET:-verified}"
 SPLIT="${SPLIT:-test}"
 WORKERS="${WORKERS:-1}"
-STEP_LIMIT="${STEP_LIMIT:-}"
+STEP_LIMIT="${STEP_LIMIT:-60}"
+ROLLOUTS="${ROLLOUTS:-1}"
+# Track whether the caller pinned a seed (regens do: SEED_BASE=<fresh> ROLLOUTS=1).
+if [[ -n "${SEED_BASE+x}" ]]; then SEED_BASE_EXPLICIT=1; else SEED_BASE_EXPLICIT=0; fi
+SEED_BASE="${SEED_BASE:-0}"
+# Nest each rollout under r<seed>/ and inject its seed when doing multiple
+# rollouts or when a specific seed was pinned; a plain single run stays flat.
+if [[ "$ROLLOUTS" -gt 1 || "$SEED_BASE_EXPLICIT" == "1" ]]; then NEST_SEED=1; else NEST_SEED=0; fi
 INSTANCES_FILE="${1:-config/pilot_instances.txt}"
 shift || true
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -76,14 +91,49 @@ if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
-RESOLVED_CONFIG="$OUTPUT_DIR/mini_swe_resolved.yaml"
 
-# Resolve the run config: installed base <- our override layer <- env values.
-# Done in Python because the merge is a deep merge and bash can't do YAML.
-MODEL_API_BASE="$MODEL_API_BASE" MODEL_API_KEY="$MODEL_API_KEY" \
-MODEL_NAME="$MODEL_NAME" STEP_LIMIT="$STEP_LIMIT" \
-OVERRIDE_CFG="$OVERRIDE_CFG" RESOLVED_CONFIG="$RESOLVED_CONFIG" \
-python - <<'PY'
+# Build a --filter regex from an instance-id file, if one is present. Built once;
+# reused across every rollout so all seeds cover the same task set.
+FILTER_ARGS=()
+if [[ -f "$INSTANCES_FILE" ]]; then
+  FILTER="$(grep -vE '^\s*(#|$)' "$INSTANCES_FILE" | paste -sd'|' -)"
+  if [[ -n "$FILTER" ]]; then
+    FILTER_ARGS=(--filter "$FILTER")
+    echo "Filtering to $(grep -cvE '^\s*(#|$)' "$INSTANCES_FILE") instance ids from $INSTANCES_FILE"
+  fi
+else
+  echo "No instances file at $INSTANCES_FILE; running the full $SUBSET/$SPLIT subset."
+fi
+
+echo "=== mini-swe-agent SWE-bench batch (local Docker -> remote model) ==="
+echo "Model endpoint: $MODEL_API_BASE"
+echo "Model name:     $MODEL_NAME"
+echo "Subset/split:   $SUBSET / $SPLIT   workers=$WORKERS   step_limit=$STEP_LIMIT"
+echo "Rollouts:       $ROLLOUTS (seeds ${SEED_BASE}..$((SEED_BASE + ROLLOUTS - 1)))"
+echo "Output dir:     $OUTPUT_DIR"
+echo ""
+
+# One generation pass per rollout seed. Each pass re-resolves the config so the
+# sampling seed is baked into extra_body.seed, and writes to its own subdir when
+# doing more than one rollout (so ingest can recover the seed from the layout).
+LAST_SEED=$((SEED_BASE + ROLLOUTS - 1))
+for SEED in $(seq "$SEED_BASE" "$LAST_SEED"); do
+  if [[ "$NEST_SEED" == "1" ]]; then
+    RUN_DIR="$OUTPUT_DIR/r${SEED}"
+    INJECT_SEED="$SEED"
+  else
+    RUN_DIR="$OUTPUT_DIR"
+    INJECT_SEED=""   # plain single run stays flat / seed-agnostic
+  fi
+  mkdir -p "$RUN_DIR"
+  RESOLVED_CONFIG="$RUN_DIR/mini_swe_resolved.yaml"
+
+  # Resolve the run config: installed base <- our override layer <- env values.
+  # Done in Python because the merge is a deep merge and bash can't do YAML.
+  MODEL_API_BASE="$MODEL_API_BASE" MODEL_API_KEY="$MODEL_API_KEY" \
+  MODEL_NAME="$MODEL_NAME" STEP_LIMIT="$STEP_LIMIT" SEED="$INJECT_SEED" \
+  OVERRIDE_CFG="$OVERRIDE_CFG" RESOLVED_CONFIG="$RESOLVED_CONFIG" \
+  python - <<'PY'
 import os, pathlib, yaml
 import minisweagent
 
@@ -112,6 +162,12 @@ step_limit = os.environ.get("STEP_LIMIT", "").strip()
 if step_limit:
     cfg.setdefault("agent", {})["step_limit"] = int(step_limit)
 
+seed = os.environ.get("SEED", "").strip()
+if seed:
+    # vLLM reads the sampling seed from the request body; litellm forwards
+    # extra_body. Distinct seeds are what make the rollouts differ.
+    model_kwargs.setdefault("extra_body", {})["seed"] = int(seed)
+
 out = pathlib.Path(os.environ["RESOLVED_CONFIG"])
 out.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
 
@@ -124,50 +180,46 @@ print(f"Resolved config -> {out}")
 print(f"  base:            {base_path}")
 print(f"  model_name:      {model['model_name']}")
 print(f"  api_base:        {model_kwargs['api_base']}")
+print(f"  seed:            {seed or '(unset)'}")
 print(f"  enable_thinking: {thinking}  (must be True)")
 if thinking is not True:
     raise SystemExit("Refusing to run: enable_thinking is not True in the resolved config.")
 PY
 
-# Build a --filter regex from an instance-id file, if one is present.
-FILTER_ARGS=()
-if [[ -f "$INSTANCES_FILE" ]]; then
-  FILTER="$(grep -vE '^\s*(#|$)' "$INSTANCES_FILE" | paste -sd'|' -)"
-  if [[ -n "$FILTER" ]]; then
-    FILTER_ARGS=(--filter "$FILTER")
-    echo "Filtering to $(grep -cvE '^\s*(#|$)' "$INSTANCES_FILE") instance ids from $INSTANCES_FILE"
-  fi
-else
-  echo "No instances file at $INSTANCES_FILE; running the full $SUBSET/$SPLIT subset."
-fi
-
-echo "=== mini-swe-agent SWE-bench batch (local Docker -> remote model) ==="
-echo "Model endpoint: $MODEL_API_BASE"
-echo "Model name:     $MODEL_NAME"
-echo "Subset/split:   $SUBSET / $SPLIT   workers=$WORKERS"
-echo "Resolved cfg:   $RESOLVED_CONFIG"
-echo "Output dir:     $OUTPUT_DIR"
-echo ""
-
-mini-extra swebench \
-  -c "$RESOLVED_CONFIG" \
-  -m "$MODEL_NAME" \
-  --subset "$SUBSET" \
-  --split "$SPLIT" \
-  -w "$WORKERS" \
-  -o "$OUTPUT_DIR" \
-  "${FILTER_ARGS[@]}" \
-  "$@"
+  echo ""
+  echo "--- rollout seed=$SEED -> $RUN_DIR ---"
+  mini-extra swebench \
+    -c "$RESOLVED_CONFIG" \
+    -m "$MODEL_NAME" \
+    --subset "$SUBSET" \
+    --split "$SPLIT" \
+    -w "$WORKERS" \
+    -o "$RUN_DIR" \
+    "${FILTER_ARGS[@]}" \
+    "$@"
+done
 
 echo ""
 echo "=== Done ==="
-echo "Trajectories + predictions in: $OUTPUT_DIR (per-instance *.traj.json + preds.json)"
+echo "Trajectories + predictions in: $OUTPUT_DIR (per-instance *.traj.json + preds.json"
+echo "under r<seed>/ when ROLLOUTS>1)."
 echo ""
-echo "Next — turn predictions into resolved/unresolved labels, then ingest:"
-echo "  python -m swebench.harness.run_evaluation \\"
-echo "    --dataset_name princeton-nlp/SWE-bench_Verified \\"
-echo "    --predictions_path $OUTPUT_DIR/preds.json --run_id <run_id>"
-echo "  # place the harness report at $OUTPUT_DIR/results.json (resolved/unresolved), then:"
+echo "Next — evaluate EACH rollout's predictions (outcomes are per-rollout), place"
+echo "each report as results.json next to that rollout's preds.json, then ingest:"
+if [[ "$NEST_SEED" == "1" ]]; then
+  echo "  for d in $OUTPUT_DIR/r*/; do"
+  echo "    python -m swebench.harness.run_evaluation \\"
+  echo "      --dataset_name princeton-nlp/SWE-bench_Verified \\"
+  echo "      --predictions_path \"\$d/preds.json\" --run_id \"\$(basename \$d)\""
+  echo "    # place the harness report at \$d/results.json"
+  echo "  done"
+else
+  echo "  python -m swebench.harness.run_evaluation \\"
+  echo "    --dataset_name princeton-nlp/SWE-bench_Verified \\"
+  echo "    --predictions_path $OUTPUT_DIR/preds.json --run_id <run_id>"
+  echo "  # place the harness report at $OUTPUT_DIR/results.json"
+fi
+echo "  # then (ingest walks r<seed>/ subdirs and reads each rollout's results.json):"
 echo "  python -m stage2.trajectories.ingest_batch --traj-dir $OUTPUT_DIR --format mini-swe-agent"
 echo ""
 echo "Then run the GPU projection step (stage2.extract.project_steps) ON THE A100,"

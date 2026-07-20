@@ -13,15 +13,10 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from stage1.common.chat import apply_chat_template
-from stage1.common.hooks import LayerActivationCapture
+from stage1.common.hooks import LayerActivationCapture, cosine_projection, unit_direction
 from stage2.common.config import load_defaults
 from stage2.common.paths import NORMALIZED_DIR, data_file, require_axis_path
-from stage2.common.projection import load_axis_direction, project_activation
-from stage2.extract.token_spans import (
-    find_observation_message_index,
-    last_token_of_final_assistant,
-    last_token_of_message_content,
-)
+from stage2.extract.token_spans import generated_token_indices
 from stage2.trajectories.schema import TrajectoryRecord, load_trajectories_from_dir
 
 
@@ -149,27 +144,69 @@ def _encode_template(tokenizer, messages, enable_thinking: bool):
     return text, enc["input_ids"], offset_mapping
 
 
-def _project_at_token(
-    model,
-    input_ids,
-    layer: int,
-    token_index: int,
-    direction: np.ndarray,
-    n_layers: int,
-) -> float | None:
-    capture = LayerActivationCapture(model, n_layers=n_layers)
-    with torch.no_grad():
-        model(input_ids=input_ids)
-    layer_act = capture.get(layer)
-    capture.remove()
-    if layer_act is None:
-        return None
-    if layer_act.dim() == 3:
-        layer_act = layer_act[0]
-    if token_index >= layer_act.shape[0]:
-        return None
-    activation = layer_act[token_index].cpu().numpy()
-    return project_activation(activation, direction)
+def load_axis_directions(axis_path: Path, layers: list[int]) -> dict[int, np.ndarray]:
+    """Unit value-axis directions for a set of layers, from ``value_axis.npy``."""
+    axis = np.load(axis_path)
+    return {L: unit_direction(axis[L].astype(np.float32)) for L in layers}
+
+
+class ActivationSink:
+    """Collects per-step, per-layer mean-pooled activation vectors for probes.
+
+    METHOD.tex's fitted-probe reference (paper Stage 5 / codebase Chunk F) fits
+    logistic probes on the same mean-pooled activations the axis readout uses, so
+    we dump them here in the single projection forward pass rather than replaying
+    the model again later. Vectors are stored ``float16`` to keep the ``.npz``
+    manageable; metadata arrays run parallel to ``activations`` row-for-row.
+    """
+
+    def __init__(self) -> None:
+        self._vecs: list[np.ndarray] = []
+        self.trajectory_id: list[str] = []
+        self.task_id: list[str] = []
+        self.seed: list[int] = []
+        self.outcome: list[int] = []
+        self.step_index: list[int] = []
+        self.rel_pos: list[float] = []
+        self.layer: list[int] = []
+
+    def add(
+        self,
+        record: TrajectoryRecord,
+        step_index: int,
+        rp: float,
+        layer: int,
+        vec: np.ndarray,
+    ) -> None:
+        self._vecs.append(vec.astype(np.float16))
+        self.trajectory_id.append(record.trajectory_id)
+        self.task_id.append(record.task_id)
+        self.seed.append(-1 if record.seed is None else int(record.seed))
+        self.outcome.append(int(record.outcome))
+        self.step_index.append(int(step_index))
+        self.rel_pos.append(float(rp))
+        self.layer.append(int(layer))
+
+    def save(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        hidden = self._vecs[0].shape[0] if self._vecs else 0
+        activations = (
+            np.stack(self._vecs)
+            if self._vecs
+            else np.zeros((0, hidden), dtype=np.float16)
+        )
+        np.savez_compressed(
+            path,
+            activations=activations,
+            trajectory_id=np.array(self.trajectory_id),
+            task_id=np.array(self.task_id),
+            seed=np.array(self.seed, dtype=np.int64),
+            outcome=np.array(self.outcome, dtype=np.int64),
+            step_index=np.array(self.step_index, dtype=np.int64),
+            rel_pos=np.array(self.rel_pos, dtype=np.float64),
+            layer=np.array(self.layer, dtype=np.int64),
+        )
+        print(f"Wrote {activations.shape[0]} activation vectors to {path}", flush=True)
 
 
 def extract_rows_for_trajectory(
@@ -177,13 +214,23 @@ def extract_rows_for_trajectory(
     model,
     tokenizer,
     *,
-    layer: int,
-    direction: np.ndarray,
+    layers: list[int],
+    directions: dict[int, torch.Tensor],
     enable_thinking: bool,
     n_layers: int,
     device: torch.device,
     fidelity_state: dict | None = None,
+    activation_sink: "ActivationSink | None" = None,
 ) -> list[dict]:
+    """One forward pass per step; per layer emit mean/last cosine over ``G_t``.
+
+    METHOD.tex Eq. 1: the step readout is the mean cosine of the value axis over
+    every agent-generated token ``G_t`` (think + content + tool-call render).
+    ``proj_final`` (cosine at the last generated token) is kept as a robustness
+    column, and ``n_gen_tokens = |G_t|``. Steps with an empty ``G_t`` are skipped,
+    but ``rel_pos``/``n_steps`` are computed over the full step list first so
+    positional bins are unaffected by omissions.
+    """
     rows: list[dict] = []
     n_steps = record.n_steps
 
@@ -197,74 +244,66 @@ def extract_rows_for_trajectory(
             "role": "assistant",
             "content": step.assistant_response,
         }
-        if step.assistant_message is not None or step.assistant_response.strip():
-            messages = list(step.messages_before_gen) + [assistant_msg]
-            text, input_ids_list, offset_mapping = _encode_template(
-                tokenizer, messages, enable_thinking
-            )
-            # Verify template fidelity once on the first structured turn: the read
-            # position is only meaningful if the render reproduces generation.
-            if (
-                fidelity_state is not None
-                and not fidelity_state.get("checked")
-                and step.assistant_message is not None
-            ):
-                assert_render_fidelity(text, step.assistant_message)
-                fidelity_state["checked"] = True
-            span = last_token_of_final_assistant(text, offset_mapping)
-            if span is not None:
-                input_ids = torch.tensor([input_ids_list], device=device)
-                proj = _project_at_token(
-                    model, input_ids, layer, span.token_index, direction, n_layers
-                )
-                if proj is not None:
-                    rows.append(
-                        {
-                            "trajectory_id": record.trajectory_id,
-                            "outcome": record.outcome,
-                            "step_index": i,
-                            "n_steps": n_steps,
-                            "rel_pos": rp,
-                            "projection": proj,
-                            "token_type": "reasoning",
-                            "layer": layer,
-                        }
-                    )
+        if step.assistant_message is None and not step.assistant_response.strip():
+            continue
 
-        if i + 1 < n_steps and step.observation and step.observation.strip():
-            next_step = record.steps[i + 1]
-            obs_msg_idx = find_observation_message_index(
-                next_step.messages_before_gen,
-                step.observation,
+        messages = list(step.messages_before_gen) + [assistant_msg]
+        text, input_ids_list, offset_mapping = _encode_template(
+            tokenizer, messages, enable_thinking
+        )
+        # Verify template fidelity once on the first structured turn: the read
+        # positions are only meaningful if the render reproduces generation.
+        if (
+            fidelity_state is not None
+            and not fidelity_state.get("checked")
+            and step.assistant_message is not None
+        ):
+            assert_render_fidelity(text, step.assistant_message)
+            fidelity_state["checked"] = True
+
+        gen_idx = generated_token_indices(text, offset_mapping)
+        if not gen_idx:
+            continue
+
+        input_ids = torch.tensor([input_ids_list], device=device)
+        capture = LayerActivationCapture(model, n_layers=n_layers)
+        with torch.no_grad():
+            model(input_ids=input_ids)
+
+        for layer in layers:
+            layer_act = capture.get(layer)
+            if layer_act is None:
+                continue
+            if layer_act.dim() == 3:
+                layer_act = layer_act[0]
+            seq_len = layer_act.shape[0]
+            valid = [t for t in gen_idx if t < seq_len]
+            if not valid:
+                continue
+            acts = layer_act[valid].float()  # (|G_t|, hidden)
+            cos = cosine_projection(acts, directions[layer])  # (|G_t|,)
+            rows.append(
+                {
+                    "task_id": record.task_id,
+                    "trajectory_id": record.trajectory_id,
+                    "seed": record.seed,
+                    "outcome": record.outcome,
+                    "exit_status": record.exit_status,
+                    "step_index": i,
+                    "n_steps": n_steps,
+                    "rel_pos": rp,
+                    "layer": layer,
+                    "proj_mean": float(cos.mean().item()),
+                    "proj_final": float(cos[-1].item()),
+                    "n_gen_tokens": len(valid),
+                }
             )
-            if obs_msg_idx is not None:
-                obs_content = next_step.messages_before_gen[obs_msg_idx]["content"]
-                text, input_ids_list, offset_mapping = _encode_template(
-                    tokenizer,
-                    next_step.messages_before_gen,
-                    enable_thinking,
+            if activation_sink is not None:
+                activation_sink.add(
+                    record, i, rp, layer, acts.mean(dim=0).cpu().numpy()
                 )
-                span = last_token_of_message_content(
-                    text, obs_content, offset_mapping
-                )
-                if span is not None:
-                    input_ids = torch.tensor([input_ids_list], device=device)
-                    proj = _project_at_token(
-                        model, input_ids, layer, span.token_index, direction, n_layers
-                    )
-                    if proj is not None:
-                        rows.append(
-                            {
-                                "trajectory_id": record.trajectory_id,
-                                "outcome": record.outcome,
-                                "step_index": i,
-                                "n_steps": n_steps,
-                                "rel_pos": rp,
-                                "projection": proj,
-                                "token_type": "tool_output",
-                                "layer": layer,
-                            }
-                        )
+
+        capture.remove()
 
     return rows
 
@@ -273,13 +312,14 @@ def run(
     traj_dir: Path,
     *,
     axis_path: Path,
-    layer: int,
+    layers: list[int],
     model_name: str,
     enable_thinking: bool,
     dtype: str,
     n_layers: int,
     output_path: Path,
     check_thinking: bool = True,
+    activations_npz: Path | None = None,
 ) -> pd.DataFrame:
     records = load_trajectories_from_dir(traj_dir)
     if not records:
@@ -288,7 +328,7 @@ def run(
     if check_thinking:
         assert_thinking_mode_matches(records, enable_thinking)
 
-    direction = load_axis_direction(axis_path, layer=layer)
+    directions_np = load_axis_directions(axis_path, layers)
 
     torch_dtype = getattr(torch, dtype)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
@@ -302,6 +342,12 @@ def run(
         trust_remote_code=True,
     ).eval()
     device = next(model.parameters()).device
+    directions = {
+        L: torch.tensor(v, dtype=torch.float32, device=device)
+        for L, v in directions_np.items()
+    }
+
+    activation_sink = ActivationSink() if activations_npz is not None else None
 
     all_rows: list[dict] = []
     fidelity_state: dict = {"checked": False}
@@ -314,12 +360,13 @@ def run(
             record,
             model,
             tokenizer,
-            layer=layer,
-            direction=direction,
+            layers=layers,
+            directions=directions,
             enable_thinking=enable_thinking,
             n_layers=n_layers,
             device=device,
             fidelity_state=fidelity_state,
+            activation_sink=activation_sink,
         )
         all_rows.extend(rows)
         print(f"    -> {len(rows)} projection rows", flush=True)
@@ -328,6 +375,10 @@ def run(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(output_path, index=False)
     print(f"Wrote {len(df)} rows to {output_path}", flush=True)
+
+    if activation_sink is not None:
+        activation_sink.save(activations_npz)
+
     return df
 
 
@@ -345,7 +396,28 @@ def main():
         type=Path,
         default=data_file("projections.parquet"),
     )
-    ap.add_argument("--layer", type=int, default=defaults["layer"])
+    ap.add_argument(
+        "--layers",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Layers to project (METHOD.tex layer sweep). Default: all layers "
+        "0..n_layers-1. The primary/headline layer is a config value used by the "
+        "analysis step.",
+    )
+    ap.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        help="Shorthand for a single-layer sweep (equivalent to --layers <L>).",
+    )
+    ap.add_argument(
+        "--activations-npz",
+        type=Path,
+        default=None,
+        help="If set, also dump per-step mean-pooled activation vectors per layer "
+        "to this .npz (consumed by the fitted-probe stage).",
+    )
     ap.add_argument("--model", default=defaults["model"])
     ap.add_argument("--axis-path", type=Path, default=defaults["axis_path"])
     ap.add_argument("--dtype", default=defaults["dtype"])
@@ -381,17 +453,28 @@ def main():
     else:
         require_axis_path(axis_path)
 
-    print(f"Extracting projections from {args.traj_dir}...", flush=True)
+    if args.layers is not None:
+        layers = args.layers
+    elif args.layer is not None:
+        layers = [args.layer]
+    else:
+        layers = list(range(args.n_layers))
+
+    print(
+        f"Extracting projections from {args.traj_dir} over {len(layers)} layer(s)...",
+        flush=True,
+    )
     run(
         args.traj_dir,
         axis_path=axis_path,
-        layer=args.layer,
+        layers=layers,
         model_name=args.model,
         enable_thinking=args.enable_thinking,
         dtype=args.dtype,
         n_layers=args.n_layers,
         output_path=args.output,
         check_thinking=not args.no_thinking_check,
+        activations_npz=args.activations_npz,
     )
 
 

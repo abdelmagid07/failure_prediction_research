@@ -6,12 +6,22 @@ import numpy as np
 import pandas as pd
 
 
+def _proj_col(df: pd.DataFrame) -> str:
+    """The primary readout column: mean cosine over G_t (Eq. 1).
+
+    Falls back to the legacy single-value ``projection`` column so pre-migration
+    parquets still analyze.
+    """
+    return "proj_mean" if "proj_mean" in df.columns else "projection"
+
+
 def signal_to_noise_by_position(df: pd.DataFrame, n_bins: int = 5) -> pd.DataFrame:
     """
     For each relative-position bin, compute separation-to-noise ratio:
         |mean_success - mean_failure| / pooled_within_class_std
     """
     work = df.copy()
+    col = _proj_col(work)
     if "token_type" in work.columns:
         work = work[work["token_type"] == "reasoning"]
 
@@ -19,8 +29,8 @@ def signal_to_noise_by_position(df: pd.DataFrame, n_bins: int = 5) -> pd.DataFra
     rows = []
     for b in sorted(work["bin"].dropna().unique()):
         sub = work[work["bin"] == b]
-        succ = sub[sub["outcome"] == 1]["projection"]
-        fail = sub[sub["outcome"] == 0]["projection"]
+        succ = sub[sub["outcome"] == 1][col]
+        fail = sub[sub["outcome"] == 0][col]
         if len(succ) < 2 or len(fail) < 2:
             continue
         between = abs(succ.mean() - fail.mean())

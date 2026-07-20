@@ -1,6 +1,11 @@
 model: Qwen/Qwen3-8B
 default_layer: 21
-gate_threshold: 0.93
+# METHOD.tex: reconstruction must be within gate_tolerance of the published
+# held-out AUROC before any transfer conclusion is drawn. Effective floor is
+# published_auroc - gate_tolerance (= 0.87). paper_targets stay for the plot.
+published_auroc: 0.90
+gate_tolerance: 0.03
+gate_threshold: 0.87
 gate_layers: [21, 22]
 paper_targets:
   21: 0.954
@@ -8,5 +13,5 @@ paper_targets:
 enable_thinking: false
 dtype: bfloat16
 split_seed: 42
-n_layers: 36  
+n_layers: 36
 hidden_dim: 4096

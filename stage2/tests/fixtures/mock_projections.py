@@ -36,34 +36,27 @@ def mock_projections(
         for step in record.steps:
             rp = rel_pos(step.step_index, record.n_steps)
             noise = rng.normal(0, 0.15)
-
-            if step.assistant_response.strip():
-                rows.append(
-                    {
-                        "trajectory_id": record.trajectory_id,
-                        "outcome": record.outcome,
-                        "step_index": step.step_index,
-                        "n_steps": record.n_steps,
-                        "rel_pos": rp,
-                        "projection": base + noise + 0.1 * rp,
-                        "token_type": "reasoning",
-                        "layer": layer,
-                    }
-                )
-
-            if step.observation and step.observation.strip():
-                rows.append(
-                    {
-                        "trajectory_id": record.trajectory_id,
-                        "outcome": record.outcome,
-                        "step_index": step.step_index,
-                        "n_steps": record.n_steps,
-                        "rel_pos": rp,
-                        "projection": base + noise + rng.normal(0, 0.35),
-                        "token_type": "tool_output",
-                        "layer": layer,
-                    }
-                )
+            if not step.assistant_response.strip():
+                continue
+            # Mean-cosine readout (Eq. 1) is the primary signal; the single
+            # final-token read (proj_final) is noisier, mirroring the real dump.
+            proj_mean = base + noise + 0.1 * rp
+            rows.append(
+                {
+                    "task_id": record.task_id,
+                    "trajectory_id": record.trajectory_id,
+                    "seed": record.seed,
+                    "outcome": record.outcome,
+                    "exit_status": record.exit_status,
+                    "step_index": step.step_index,
+                    "n_steps": record.n_steps,
+                    "rel_pos": rp,
+                    "layer": layer,
+                    "proj_mean": proj_mean,
+                    "proj_final": proj_mean + rng.normal(0, 0.2),
+                    "n_gen_tokens": int(rng.integers(20, 200)),
+                }
+            )
 
     df = pd.DataFrame(rows)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,8 +1,8 @@
 # HANDOFF
 
-Last updated: 2026-07-16. This file is the single entry point for anyone (human
+Last updated: 2026-07-20. This file is the single entry point for anyone (human
 or agent) picking up this project. Read it top to bottom once, then use the
-linked docs.
+linked docs. **Methodology source of truth:** [METHOD.tex](METHOD.tex).
 
 ---
 
@@ -20,14 +20,15 @@ venue: a NeurIPS mechanistic-interpretability workshop.
   trajectories and is read internally).
 - **Axis source:** Jiang, Kauvar, Lindsey (2026), arXiv
   [2606.17056](https://arxiv.org/abs/2606.17056).
-- **Benchmark:** SWE-bench (real GitHub bug-fix tasks).
+- **Benchmark:** SWE-bench **Verified** (60 tasks × 5 seeds when selection is fixed).
 - **Headline so far:** Stage 1 (rebuild + verify the axis) is **done** — 0.87
-  AUROC at layers 21/22 on held-out data. The Stage 2 pipeline is **built and
-  green on offline tests** but has **not yet been run on real SWE-bench
-  trajectories** — that's the next milestone.
+  AUROC at layers 21/22 (passes METHOD.tex gate: within 0.03 of published ~0.90).
+  The Stage 2 pipeline matches METHOD.tex Eq. 1 (mean cosine over generated
+  tokens), multi-rollout generation, and task-level stats — but has **not yet
+  been run on real SWE-bench trajectories**.
 
-Full research framing: [docs/method.md](docs/method.md). Proposal:
-[PROPOSAL.tex](PROPOSAL.tex). Plan: [ROADMAP.md](ROADMAP.md).
+Full research framing: [docs/method.md](docs/method.md) + [METHOD.tex](METHOD.tex).
+Proposal: [PROPOSAL.tex](PROPOSAL.tex). Plan: [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -36,33 +37,26 @@ Full research framing: [docs/method.md](docs/method.md). Proposal:
 ### Done
 - **Stage 1** — ICRL → activation extract → value axis + AUROC gate. Axis frozen
   as `stage1/data/value_axis_proxy.npy` (dev preset) / `value_axis.npy`
-  (default). Shape 36 layers × 4096 hidden. 0.87 AUROC at L21/L22.
-- **Stage 2 pipeline plumbing** — end-to-end path exists and passes the offline
-  wiring test:
-  - `trajectories/` — normalized schema + two parsers + format-aware batch ingest.
-  - `extract/project_steps.py` — replays each recorded turn through Qwen3-8B and
-    reads the value-axis projection at the last token of assistant output (and of
-    tool observations), tagging rows `reasoning` vs `tool_output`.
-  - `analyze/` — final-step AUROC, SNR-by-position, noise-by-token-type.
-- **Agent migration** — switched the real-run agent from
-  **SWE-agent → mini-swe-agent** (the maintained lightweight successor SWE-bench
-  is migrating to). See §4.
-- **Thinking-ON migration (this session, 2026-07-17)** — Stage 2 now generates
-  and projects with `enable_thinking=True`. The schema carries the native
-  assistant turn (`reasoning_content` + `tool_calls`) and native history;
-  `project_steps` re-renders it through the Qwen3 template and reads the last
-  token of the full assistant turn, with a render-fidelity guard. Stage 1 axis
-  is untouched, so this is now a **cross-mode transfer** test. See §4b.
+  (default). Shape 36 layers × 4096 hidden. 0.87 AUROC at L21/L22. Gate floor is
+  now `published_auroc - gate_tolerance` = 0.87 (METHOD.tex).
+- **Stage 2 pipeline (METHOD.tex-aligned)** — offline wiring test green:
+  - `trajectories/` — schema with `task_id` / `seed` / `exit_status`; multi-rollout
+    ingest under `r<seed>/`; crash-stub exclusion + regen planner.
+  - `extract/project_steps.py` — **mean cosine over `G_t`** (Eq. 1) + `proj_final`
+    robustness; multi-layer; optional activations `.npz` for probes.
+  - `analyze/` — final-step AUROC + task-level BCa CI + permutation; AUROC by
+    position; majority baseline; within-task contrast.
+  - `elicit/confidence.py` — post-hoc P(success) elicitation (Stage 3).
+  - `probes/fit_probes.py` — task-level CV probe grid (Stage 4).
+- **Agent:** mini-swe-agent **2.4.5**, thinking ON, sampling 0.6/0.95/20,
+  step budget 60, `ROLLOUTS` seed loop in `run_mini_swe_batch.sh`.
 
 ### Not done yet
-- A **real SWE-bench run** through the mini-swe-agent path (the whole point of
-  Week 1). Everything downstream has only been exercised on synthetic fixtures.
-- **One live verification** that thinking-mode is actually ON over the wire and
-  that tool calls still parse under it (see §6, the single most important pre-run
-  check).
-- Majority-class baseline surfaced in `analysis_report.json`.
-- Stage 3 (projection-vs-position curves, elicited-confidence baseline) and
-  Stage 4 (layer localization).
+- A **real SWE-bench Verified run** (pilot → then 60×5 once selection criteria
+  are fixed).
+- Task selection criteria for the 60 Verified instances.
+- Paper Stage 2 single-turn coding control (deferred).
+- Live end-to-end projection on GPU with the new readout.
 
 ---
 
@@ -72,27 +66,24 @@ Full research framing: [docs/method.md](docs/method.md). Proposal:
 stage1/                      # build + verify the value axis (DONE)
 stage2/
   config/
-    defaults.yaml            # model=Qwen/Qwen3-8B, layer=21, n_layers=36,
-                             #   hidden_dim=4096, enable_thinking=true
-    presets/dev.yaml         # dev preset -> proxy axis (value_axis_proxy.npy)
+    defaults.yaml            # primary_layer=21, step_limit=60, n_bins=5,
+                             #   enable_thinking=true
+    elicitation_prompt.txt   # verbatim P(success) prompt (paper appendix)
     mini_swe_qwen.yaml       # PRIMARY: mini-swe-agent model-override layer
-    swe_agent_qwen.yaml      # LEGACY: SWE-agent config (kept until mini verified)
-    pilot_instances.txt      # SWE-bench instance ids for a pilot batch
-    devbugs_instances.txt    # ids for the local no-Docker dev harness
+    pilot_instances.txt      # SWE-bench Verified pilot ids
   scripts/
-    run_mini_swe_batch.sh    # PRIMARY generator (mini-swe-agent + Docker)
-    run_devbugs_batch.sh     # local dev harness (no Docker, hand-written bugs)
-    run_pilot_batch.sh       # LEGACY (SWE-agent)
+    run_mini_swe_batch.sh    # PRIMARY generator (ROLLOUTS seed loop, STEP_LIMIT=60)
+    list_regens.py           # infra-excluded → fresh-seed regen commands
+    serve_qwen.sh            # self-hosted vLLM (AWS / no tunnel)
   stage2/
-    trajectories/            # schema.py, parse_swe_traj.py,
-                             #   parse_mini_swe_traj.py, ingest_batch.py
-    extract/                 # project_steps.py, token_spans.py
-    analyze/                 # run_analyses.py + final-step / SNR / token-type
-    devbugs/                 # local dev bug-fix harness (was stage2/mini/)
-    common/                  # paths, config, projection helpers
-tests/integration/           # test_stage1_wiring.sh, test_stage2_wiring.sh
-docs/                        # method, setup, onboarding, analyses, walkthrough
-reference/                   # FROZEN read-only snapshot of the original pipeline
+    trajectories/            # schema (task_id/seed/exit_status), parsers, ingest
+    extract/                 # project_steps (Eq. 1 mean-cosine), token_spans
+    analyze/                 # stats, final_step, by_position, internal_vs_elicited
+    elicit/                  # post-hoc confidence (codebase Stage 3)
+    probes/                  # fitted logistic probes (codebase Stage 4)
+    devbugs/                 # local no-Docker harness
+tests/integration/
+docs/                        # method.md mirrors METHOD.tex
 ```
 
 **The pipeline, in order:**

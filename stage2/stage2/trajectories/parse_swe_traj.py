@@ -75,14 +75,26 @@ def _normalize_messages(query: object) -> list[Message]:
     return messages
 
 
-def parse_swe_traj(traj_path: Path, outcome: int) -> TrajectoryRecord:
-    """Parse one raw ``.traj`` file into a normalized record with ``outcome``."""
+def parse_swe_traj(
+    traj_path: Path,
+    outcome: int,
+    *,
+    seed: int | None = None,
+    task_id: str | None = None,
+) -> TrajectoryRecord:
+    """Parse one raw ``.traj`` file into a normalized record with ``outcome``.
+
+    Mirrors :func:`parse_mini_swe_traj`'s identity handling: ``task_id`` defaults
+    to the instance id and a rollout ``seed`` suffixes the ``trajectory_id``.
+    """
     traj_path = Path(traj_path)
     data = json.loads(traj_path.read_text(encoding="utf-8"))
 
     raw_steps = data.get("trajectory", [])
     info = data.get("info", {}) or {}
-    trajectory_id = str(info.get("instance_id") or traj_path.stem)
+    instance_id = task_id or str(info.get("instance_id") or traj_path.stem)
+    trajectory_id = f"{instance_id}__r{seed}" if seed is not None else instance_id
+    exit_status = str(info.get("exit_status", "")) or None
 
     steps: list[TrajectoryStep] = []
     for i, raw in enumerate(raw_steps):
@@ -99,4 +111,7 @@ def parse_swe_traj(traj_path: Path, outcome: int) -> TrajectoryRecord:
         trajectory_id=trajectory_id,
         outcome=int(outcome),
         steps=steps,
+        task_id=instance_id,
+        seed=seed,
+        exit_status=exit_status,
     )

@@ -9,7 +9,14 @@ from stage2.trajectories.parse_swe_traj import parse_swe_traj
 from stage2.trajectories.schema import TrajectoryRecord, TrajectoryStep, save_trajectory
 
 
-def _make_record(trajectory_id: str, outcome: int, n_steps: int) -> TrajectoryRecord:
+def _make_record(
+    trajectory_id: str,
+    outcome: int,
+    n_steps: int,
+    *,
+    task_id: str | None = None,
+    seed: int | None = None,
+) -> TrajectoryRecord:
     steps = []
     for i in range(n_steps):
         assistant_message = {
@@ -44,6 +51,9 @@ def _make_record(trajectory_id: str, outcome: int, n_steps: int) -> TrajectoryRe
         outcome=outcome,
         n_steps=n_steps,
         steps=steps,
+        task_id=task_id or trajectory_id,
+        seed=seed,
+        exit_status="Submitted" if outcome == 1 else "LimitsExceeded",
     )
 
 
@@ -115,6 +125,38 @@ def write_mini_run_fixture(run_dir: Path) -> Path:
     results_path = run_dir / "results.json"
     results_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results_path
+
+
+def write_mini_rollout_fixture(run_dir: Path) -> Path:
+    """Write a multi-rollout mini-swe-agent run: ``<run>/r<seed>/<inst>/…``.
+
+    Two seeds over two tasks, with a per-rollout results.json so outcomes differ
+    across seeds (task ``roll_a`` resolves at seed 0 but not seed 1), plus one
+    infra crash at seed 1 the ingest guard must exclude and the regen planner
+    must pick up. Returns the run directory.
+    """
+    run_dir = Path(run_dir)
+    layout = {
+        0: [("roll_a", "Submitted", 2), ("roll_b", "LimitsExceeded", 3)],
+        1: [("roll_a", "LimitsExceeded", 2), ("roll_b", "APIConnectionError", 1)],
+    }
+    results = {
+        0: {"resolved_ids": ["roll_a"], "unresolved_ids": ["roll_b"]},
+        1: {"resolved_ids": [], "unresolved_ids": ["roll_a"]},
+    }
+    for seed, specs in layout.items():
+        rdir = run_dir / f"r{seed}"
+        for instance_id, exit_status, n_assistant in specs:
+            inst_dir = rdir / instance_id
+            inst_dir.mkdir(parents=True, exist_ok=True)
+            payload = _mini_traj(instance_id, exit_status, n_assistant)
+            (inst_dir / f"{instance_id}.traj.json").write_text(
+                json.dumps(payload, indent=2), encoding="utf-8"
+            )
+        (rdir / "results.json").write_text(
+            json.dumps(results[seed], indent=2), encoding="utf-8"
+        )
+    return run_dir
 
 
 def write_smoke_fixtures(output_dir: Path, sample_traj: Path | None = None) -> list[Path]:

@@ -17,6 +17,12 @@ from stage1.pipeline.extract_activations import run as extract_run
 
 
 def check_gate(auroc_by_layer: dict, gate_layers: list[int], threshold: float) -> bool:
+    """Pass iff every gate layer's held-out AUROC is at least ``threshold``.
+
+    METHOD.tex: the reconstruction must land within ``gate_tolerance`` of the
+    published held-out AUROC. The caller sets ``threshold = published_auroc -
+    gate_tolerance`` (default 0.87 = 0.90 - 0.03).
+    """
     for layer in gate_layers:
         val = auroc_by_layer.get(str(layer), float("nan"))
         if np.isnan(val) or val < threshold:
@@ -30,10 +36,16 @@ def main():
         "--preset",
         choices=["default", "dev"],
         default="default",
-        help="Config preset (default: faithful 0.93 gate; dev: separate artifacts, 0.75 gate)",
+        help="Config preset (default: METHOD.tex gate published-0.03; "
+        "dev: separate artifacts, 0.75 gate)",
     )
     ap.add_argument("--icrl", type=Path, default=None, help="ICRL JSON path")
-    ap.add_argument("--threshold", type=float, default=None, help="Override gate threshold")
+    ap.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Override gate threshold (default: published_auroc - gate_tolerance)",
+    )
     ap.add_argument("--skip-extract", action="store_true", help="Use cached activations only")
     ap.add_argument("--skip-mock", action="store_true", help="Do not regenerate mock_icrl.json")
     ap.add_argument("--force-extract", action="store_true")
@@ -54,7 +66,12 @@ def main():
         icrl_path = cfg["icrl_path"]
     activations_dir: Path = cfg["activations_dir"]
     n_layers = args.n_layers or cfg["n_layers"]
-    threshold = args.threshold if args.threshold is not None else cfg["gate_threshold"]
+    if args.threshold is not None:
+        threshold = args.threshold
+    elif "published_auroc" in cfg and "gate_tolerance" in cfg:
+        threshold = float(cfg["published_auroc"]) - float(cfg["gate_tolerance"])
+    else:
+        threshold = cfg["gate_threshold"]
 
     if args.preset == "default" and not args.skip_mock and args.icrl is None:
         from tests.fixtures.icrl_mock import write_mock_icrl

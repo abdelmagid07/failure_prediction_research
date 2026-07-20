@@ -1,5 +1,8 @@
 model: Qwen/Qwen3-8B
-layer: 21
+# Primary layer for headline analyses (METHOD.tex: highest Stage-1 held-out AUROC,
+# fixed before any agentic data is examined). Other layers are reported as a sweep.
+primary_layer: 21
+layer: 21   # legacy alias; prefer primary_layer
 axis_path: ../stage1/data/value_axis.npy
 axis_manifest_path: ../stage1/data/axis_manifest.json
 enable_thinking: true
@@ -7,4 +10,5 @@ dtype: bfloat16
 n_layers: 36
 hidden_dim: 4096
 n_bins: 5
+step_limit: 60
 max_observations_in_context: 5

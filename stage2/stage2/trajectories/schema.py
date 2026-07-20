@@ -92,22 +92,42 @@ class TrajectoryStep:
 
 @dataclass
 class TrajectoryRecord:
-    """A full agent run plus its resolved/unresolved label."""
+    """A full agent run plus its resolved/unresolved label.
+
+    ``task_id`` is the SWE-bench instance (the *task*), while ``trajectory_id``
+    identifies one rollout of that task (instance + seed, e.g.
+    ``django__django-10097__r1``). METHOD.tex generates 5 seed-only rollouts per
+    task and resamples/cross-validates at the task level, so the two must be
+    distinct: many trajectories share one ``task_id``. ``seed`` is the rollout's
+    sampling seed (``None`` for single-rollout/legacy data) and ``exit_status``
+    is the agent's termination reason (mini's ``info.exit_status``), kept so the
+    model-vs-infrastructure failure taxonomy is a first-class analysis filter.
+    """
 
     trajectory_id: str
     outcome: int
     steps: list[TrajectoryStep] = field(default_factory=list)
     n_steps: int = 0
+    task_id: str = ""
+    seed: int | None = None
+    exit_status: str | None = None
 
     def __post_init__(self) -> None:
         # n_steps is derived, never trusted from the caller: keeping it in sync
         # with len(steps) means rel_pos in the projection step can't drift.
         self.n_steps = len(self.steps)
+        # Legacy/single-rollout data carries no separate task id; fall back to
+        # the trajectory id so grouping code always has a task key.
+        if not self.task_id:
+            self.task_id = self.trajectory_id
 
     def to_dict(self) -> dict:
         return {
             "trajectory_id": self.trajectory_id,
+            "task_id": self.task_id,
+            "seed": self.seed,
             "outcome": self.outcome,
+            "exit_status": self.exit_status,
             "n_steps": self.n_steps,
             "steps": [s.to_dict() for s in self.steps],
         }
@@ -118,6 +138,9 @@ class TrajectoryRecord:
             trajectory_id=str(d["trajectory_id"]),
             outcome=int(d["outcome"]),
             steps=[TrajectoryStep.from_dict(s) for s in d.get("steps", [])],
+            task_id=str(d.get("task_id") or d["trajectory_id"]),
+            seed=d.get("seed"),
+            exit_status=d.get("exit_status"),
         )
 
 

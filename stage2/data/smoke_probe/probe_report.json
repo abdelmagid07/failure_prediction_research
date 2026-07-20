@@ -1,0 +1,12 @@
+{
+  "n_rows": 15,
+  "n_tasks": 4,
+  "n_layers": 1,
+  "n_bins": 5,
+  "n_folds": 2,
+  "C": 1.0,
+  "grid_csv": "data\\smoke_probe\\probe_auroc_grid.csv",
+  "grid_max_auroc": NaN,
+  "grid_mean_auroc": NaN,
+  "note": "grid_max_auroc is a summary only; selection across the layer\u00d7bin family is subject to overfitting \u2014 report the full grid."
+}

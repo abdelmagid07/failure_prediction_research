@@ -1,0 +1,75 @@
+% =====================================================================
+% METHOD + EXPERIMENTAL SETUP — workshop-length, second-pass hardened
+% Readout now matches Jiang et al.'s Eq: per-step MEAN COSINE over
+% agent-generated tokens (their sequence-mean convention), with
+% single-final-token demoted to robustness.  Notes at bottom.
+% =====================================================================
+
+\section{Methodology}
+
+Our design proceeds in five stages: (1) reconstruct and verify the value axis in its original single-turn setting; (2) test the frozen axis on single-turn coding problems, isolating the domain shift; (3) test transfer to long-horizon agentic trajectories, first at the final step and then across all positions; (4) compare the internal projection against the agent's verbalized success estimate; and (5) fit probes directly on agentic activations as a decodability reference. Throughout, trajectory position is expressed as a fraction of total trajectory length so that trajectories of differing lengths are compared on a common axis.
+
+\paragraph{Stage 1: Axis reconstruction.} We reconstruct the value axis on Qwen3-8B following the difference-in-means construction of \citet{jiang2026value}, using their released code and in-context RL data, and confirm that the reconstruction reproduces the reported held-out separation at the reported middle-to-late layers, requiring AUROC within [NUM] points of the published value. The reconstruction must pass this gate before any transfer conclusion is drawn: a failure to transfer is only interpretable if the axis being transferred is faithful. The layer with the highest held-out AUROC in our reconstruction is designated the primary layer for all subsequent analyses, fixed before any agentic data is examined; other layers are reported as a layer sweep. The verified axis is then frozen; no stage below refits it.
+
+\paragraph{Stage 2: Single-turn coding control.} The move from the axis's construction setting to agentic trajectories changes two variables at once: the task domain (in-context RL conversations to repository-level code editing) and the horizon (single-turn to multi-step). We therefore first project the frozen axis onto single-turn coding problems, contrasting correct with incorrect solutions, a setting matched in domain to our agentic evaluation but matched in horizon to the axis's original validation. Stage 2 is evaluated with the same machinery as the transfer test: AUROC at the primary layer with a bootstrap confidence interval, judged against the majority-class baseline, so that the control and the transfer result are directly comparable. We interpret the control as showing signal when its confidence interval excludes the baseline and as showing no signal when it does not, with these regimes fixed in advance. If the axis fails here, the domain change alone breaks the signal, and the agentic result must be read in that light; if it succeeds here but fails on trajectories, the remaining difference is the agentic, multi-step setting, though we note this bundles horizon length with other properties of agentic rollouts, such as interleaved tool output and accumulated context, which our design does not further disentangle.
+
+\paragraph{Stage 3: Transfer to agentic trajectories.} Following the evaluation convention of \citet{jiang2026value}, who score a sequence by its mean projection over all token positions, we define the projection of trajectory step $t$ as the mean cosine similarity between the frozen axis $v^{(\ell)}$ and the layer-$\ell$ activations of the tokens the agent itself generated at that step:
+\begin{equation}
+\pi(t) = \frac{1}{|G_t|} \sum_{i \in G_t} \cos\!\left(h^{(\ell)}_i,\; v^{(\ell)}\right),
+\end{equation}
+where $G_t$ is the set of agent-generated token positions in step $t$. We restrict the mean to agent-generated tokens, excluding tool output and injected scaffold text, because the original sequences were entirely model-generated; tool output is text the model did not produce. This makes the Stage 1 verification and the transfer test use the same readout, which is the point of freezing. As a robustness check we also report the projection at the final generated token alone. Steps whose generation terminates abnormally (truncation at the token budget, malformed tool calls) contribute whatever tokens the agent generated; steps with no generated tokens are omitted from position bins (total trajectory length, used for position normalization, is counted before omission). We first test whether $\pi(T)$ at the final step separates eventually-resolved from eventually-unresolved trajectories, the most favorable case for the signal; we then compute the same separation at every relative position, binned into [NUM] equal-width position bins. A final-step null is checked against the full positional sweep before being reported as absence of transfer.
+
+\paragraph{Stage 4: Verbalized-confidence comparison.} After all trajectories are generated, we elicit the agent's verbalized success estimate post hoc: for each saved trajectory prefix ending at step $t$, the same model is prompted in a separate forward pass to state its probability of eventually resolving the task, a single number in $[0,1]$ (prompt in Appendix [REF]). Eliciting post hoc avoids perturbing the trajectories under study, but introduces an asymmetry we make explicit: the internal projection is read from the rollout pass, while the verbalized estimate comes from a separate pass over the same prefix with an elicitation prompt appended. The internal projection and the verbalized estimate are evaluated against the same ground-truth outcomes at each position, testing whether the internal state carries outcome information beyond what the agent reports.
+
+\paragraph{Stage 5: Fitted-probe reference.} The frozen-axis test establishes whether the original representation persists, but a frozen axis can fail while outcome information remains decodable in a different direction. As a reference, we therefore also fit logistic probes on the same agentic activations, with training-fold-only standardization, $\ell_2$ regularization, and task-level cross-validation: all trajectories of a task are assigned to the same fold, and folds are stratified by task-level outcome mix so that each fold contains resolved trajectories. Because probes are fit per layer and position, the best fitted result is subject to selection across this family; we therefore report the full layer-by-position grid rather than only its maximum, and treat the fitted results as a decodability reference rather than a tuned ceiling. The frozen and fitted results jointly distinguish four cases: the representation persists and outcome information is decodable; the representation fails but a different direction succeeds; both fail; or the frozen axis matches the fitted reference.
+
+\section{Experimental Setup}
+
+\paragraph{Model and scaffold.} All experiments use Qwen3-8B, the model on which the value axis was originally constructed; using the same model removes cross-architecture transfer as a confound. Trajectories are generated on-policy by Qwen3-8B running in mini-SWE-agent [VERIFY-BIB: cite mini-SWE-agent] version [NUM], with a step budget of [NUM]; trajectories terminate on submission or budget exhaustion, and exhausted-budget trajectories are counted as unresolved. We distinguish model failures from infrastructure failures by whether the failing action was produced by the model: malformed tool calls, invalid edits, and repetitive non-progressing behavior are model failures and count as unresolved, whereas API timeouts, container crashes, and other errors external to the model's output are infrastructure failures, which are excluded and regenerated under a new seed, with exclusion counts reported. On-policy generation is required because the projection measures the generating model's own internal state; projecting the axis onto trajectories produced by a different model would measure a different quantity.
+
+\paragraph{Tasks and trajectories.} We use 60 tasks from SWE-bench Verified \citep{jimenez2024swebench}, selected by [FILL IN SELECTION CRITERIA], generating 5 independent trajectories per task for 300 generated trajectories; the analyzed count after exclusions is reported in Section [REF]. The five trajectories per task differ only in random seed; sampling uses temperature 0.6, top-$p$ 0.95, and top-$k$ 20, with the task, repository, and scaffold configuration held fixed, so that within-task outcome variation reflects sampling stochasticity rather than differing inputs. Outcomes are binary, resolved or unresolved, determined by SWE-bench's FAIL\_TO\_PASS and PASS\_TO\_PASS test criteria. Repeated trajectories per task additionally allow within-task contrasts: where the same task is resolved on some seeds and not others, resolved and unresolved trajectories are compared while holding task difficulty fixed, testing whether the signal tracks trajectory dynamics rather than static task difficulty. Such mixed-outcome tasks are by construction of intermediate difficulty, so this contrast characterizes a non-random subset of tasks, which we state where it is reported.
+
+\paragraph{Statistical reporting.} Success is the minority class; all separation is therefore reported as AUROC against a majority-class baseline rather than an assumed 0.5. Uncertainty is quantified by bootstrap with the task as the unit of resampling, respecting the 60$\times$5 structure and the within-trajectory correlation of steps, with 95\% bias-corrected and accelerated (BCa) confidence intervals on all reported AUROCs. Headline separations are additionally tested by permutation: each task's set of trajectory outcomes is reassigned across tasks as a block, preserving the within-task outcome structure under the null of no association between activations and outcome.
+
+% =====================================================================
+% NOTES FOR US (delete before submission):
+%
+% THIRD-PASS FIXES APPLIED:
+% 1. Layer selection pre-registered: primary layer = best held-out
+%    AUROC in OUR Stage-1 reconstruction, fixed before touching
+%    agentic data; other layers = layer sweep. (Closes the layer
+%    degree-of-freedom.)
+% 2. Stage 2 now has a pre-stated criterion: same AUROC+CI machinery
+%    as transfer, signal iff CI excludes majority baseline, regimes
+%    fixed in advance.
+% 3. Same-pass elicitation robustness read DROPPED per user
+%    (overengineering; also had the token-set subtlety).
+% 4. Model-vs-infrastructure failure boundary defined: malformed
+%    calls / invalid edits / non-progressing loops = model failure
+%    (unresolved); API timeouts / container crashes = infrastructure
+%    (excluded, regenerated new seed, counts reported).
+% 5. Permutation null specified (task outcome-profiles reassigned as
+%    blocks); intervals specified as BCa.
+% 6. Notation: val(t) -> pi(t), no collision with axis v.
+% 7. Scaffold marketing phrase cut; version pin [NUM] added.
+% 8. Position normalization counted BEFORE zero-token-step omission.
+% 9. Sampling spec: seed-only variation, temp 0.6 / top-p 0.95 /
+%    top-k 20, task+repo+config fixed.
+% 10. ("Success is minority class") — re-check against reality once
+%    trajectories exist; selection criteria could change it.
+%
+% CARRIED FROM SECOND PASS (still binding):
+% - Readout = per-step mean cosine over agent-generated tokens.
+%   PIPELINE MUST IMPLEMENT THIS before Stage 1; update context.md
+%   and extraction code (token-level generated-vs-tool mask needed).
+%
+% STILL OPEN:
+% - [NUM]s: gate tolerance (suggest 0.02-0.03), bin count, step
+%   budget, mini-SWE-agent version.
+% - [FILL IN SELECTION CRITERIA] — user to supply.
+% - Single-turn control data source (Jiang corrupted-code data /
+%   HumanEval-with-bugs / Qwen pass-fail attempts) — decide.
+% - [VERIFY-BIB] mini-SWE-agent citation.
+% - Appendix: elicitation prompt + \label for [REF].
+% - Pin actual layer numbers after Stage 1 runs.
+% =====================================================================

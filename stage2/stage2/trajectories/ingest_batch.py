@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,9 +86,52 @@ class FormatSpec:
 
     name: str
     glob: str
-    parse: Callable[[Path, int], TrajectoryRecord]
+    parse: Callable[..., TrajectoryRecord]
     instance_id: Callable[[dict, Path], str]
     is_crash: Callable[[str], bool]
+
+
+_SEED_DIR_RE = re.compile(r"^r(\d+)$")
+
+
+def find_results_for(traj_path: Path, traj_dir: Path) -> Path | None:
+    """Nearest ``results.json`` for a trajectory, walking parents up to ``traj_dir``.
+
+    Outcomes are per-rollout, so a multi-rollout run has one ``results.json`` per
+    ``r<seed>/`` subdir; a flat single-rollout run has one at the top. Walking up
+    from the trajectory file finds the right one in both layouts (and lets a
+    single top-level report still cover a flat run).
+    """
+    traj_dir_r = Path(traj_dir).resolve()
+    cur = Path(traj_path).resolve().parent
+    while True:
+        cand = cur / "results.json"
+        if cand.exists():
+            return cand
+        if cur == traj_dir_r:
+            return None
+        parent = cur.parent
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def _seed_from_path(traj_path: Path, traj_dir: Path) -> int | None:
+    """Recover a rollout seed from an ``r<seed>/`` ancestor directory.
+
+    The multi-rollout runner writes each seed's trajectories under
+    ``<run>/r<seed>/…`` (Chunk C). A flat run directory (single rollout / legacy)
+    has no such component and yields ``None``.
+    """
+    try:
+        rel = traj_path.relative_to(traj_dir)
+    except ValueError:
+        rel = traj_path
+    for part in rel.parts:
+        m = _SEED_DIR_RE.match(part)
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def _sweagent_instance_id(info: dict, path: Path) -> str:
@@ -152,16 +196,23 @@ def ingest_batch(
         fmt, error_statuses=error_statuses, genuine_statuses=genuine_statuses
     )
 
-    results_path = Path(results_path) if results_path else traj_dir / "results.json"
-    if not results_path.exists():
-        raise SystemExit(
-            f"Labels file not found: {results_path}\n"
-            "Ingest needs resolved/unresolved labels. Point --results at the "
-            "run's results.json (the devbugs harness writes one automatically; "
-            "for mini-swe-agent/SWE-bench, run the evaluation harness first)."
-        )
+    # Labels can be a single shared report (--results, or a flat run's
+    # results.json) or one report per rollout subdir. Resolve lazily per file so
+    # both layouts work; cache each report so it is parsed once.
+    explicit_results = Path(results_path) if results_path else None
+    if explicit_results is not None and not explicit_results.exists():
+        raise SystemExit(f"Labels file not found: {explicit_results}")
+    label_cache: dict[Path, tuple[dict[str, int], bool]] = {}
 
-    labels, had_unresolved = load_labels(results_path)
+    def labels_for(tp: Path) -> tuple[dict[str, int] | None, bool, Path | None]:
+        rp = explicit_results or find_results_for(tp, traj_dir)
+        if rp is None:
+            return None, False, None
+        if rp not in label_cache:
+            label_cache[rp] = load_labels(rp)
+        labels, had_unresolved = label_cache[rp]
+        return labels, had_unresolved, rp
+
     traj_files = find_traj_files(traj_dir, spec.glob)
     if not traj_files:
         raise SystemExit(
@@ -175,6 +226,7 @@ def ingest_batch(
     skipped: list[str] = []
     excluded_errors: list[dict] = []
     exit_status_hist: Counter[str] = Counter()
+    results_paths_used: set[str] = set()
     n_success = 0
     n_failure = 0
 
@@ -194,27 +246,50 @@ def ingest_batch(
                 flush=True,
             )
             excluded_errors.append(
-                {"trajectory_id": instance_id, "exit_status": exit_status}
+                {
+                    "trajectory_id": instance_id,
+                    "task_id": instance_id,
+                    "seed": _seed_from_path(traj_path, traj_dir),
+                    "exit_status": exit_status,
+                    "source": str(traj_path),
+                }
             )
             continue
 
+        # Labels are keyed by the SWE-bench *task* (instance) id within each
+        # rollout's own report (outcomes differ across rollouts of a task).
+        labels, had_unresolved, rp = labels_for(traj_path)
+        if labels is None:
+            print(
+                f"  SKIP {instance_id}: no results.json found for its rollout "
+                "(evaluate the rollout's preds.json with the harness first)",
+                flush=True,
+            )
+            skipped.append(instance_id)
+            continue
+        if rp is not None:
+            results_paths_used.add(str(rp))
         if instance_id in labels:
             outcome = labels[instance_id]
         elif not had_unresolved:
             # Only a resolved list was given: absence means unresolved.
             outcome = 0
         else:
-            print(f"  SKIP {instance_id}: no label in results.json", flush=True)
+            print(f"  SKIP {instance_id}: no label in {rp}", flush=True)
             skipped.append(instance_id)
             continue
 
-        record = spec.parse(traj_path, outcome)
+        seed = _seed_from_path(traj_path, traj_dir)
+        record = spec.parse(traj_path, outcome, seed=seed, task_id=instance_id)
         out_path = output_dir / f"{record.trajectory_id}.json"
         save_trajectory(record, out_path)
         written.append(
             {
                 "trajectory_id": record.trajectory_id,
+                "task_id": record.task_id,
+                "seed": record.seed,
                 "outcome": outcome,
+                "exit_status": record.exit_status,
                 "n_steps": record.n_steps,
                 "source": str(traj_path),
             }
@@ -227,10 +302,18 @@ def ingest_batch(
             flush=True,
         )
 
+    if not results_paths_used and not written:
+        raise SystemExit(
+            f"No results.json found under {traj_dir} (nor via --results).\n"
+            "Ingest needs resolved/unresolved labels. For multi-rollout runs, "
+            "evaluate each r<seed>/preds.json and place its report at "
+            "r<seed>/results.json; for a flat run, place one at the run root."
+        )
+
     manifest = {
         "format": spec.name,
         "traj_dir": str(traj_dir),
-        "results_path": str(results_path),
+        "results_paths": sorted(results_paths_used),
         "output_dir": str(output_dir),
         "n_ingested": len(written),
         "n_success": n_success,

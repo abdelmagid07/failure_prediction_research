@@ -26,6 +26,57 @@ def _char_to_token(offset_mapping: list[tuple[int, int]], char_pos: int) -> int 
     return None
 
 
+def _final_assistant_region(
+    full_text: str,
+    assistant_marker: str,
+    turn_end_marker: str,
+) -> tuple[int, int] | None:
+    """Character span of the final assistant turn's *output* region.
+
+    Starts right after the ``<|im_start|>assistant`` marker (so the role header
+    itself is excluded) and ends at the following ``<|im_end|>`` (or end of
+    text). Returns ``None`` if there is no assistant marker.
+    """
+    marker_pos = full_text.rfind(assistant_marker)
+    if marker_pos < 0:
+        return None
+    region_start = marker_pos + len(assistant_marker)
+    end_pos = full_text.find(turn_end_marker, region_start)
+    region_end = end_pos if end_pos >= 0 else len(full_text)
+    return region_start, region_end
+
+
+def generated_token_indices(
+    full_text: str,
+    offset_mapping: list[tuple[int, int]],
+    *,
+    assistant_marker: str = "<|im_start|>assistant",
+    turn_end_marker: str = "<|im_end|>",
+) -> list[int]:
+    """ALL token indices of the final assistant turn's generated region (``G_t``).
+
+    METHOD.tex Eq. 1 reads the value axis as the *mean* cosine over every
+    agent-generated token of a step, not just the last one. Those tokens are the
+    whole ``<|im_start|>assistant`` … ``<|im_end|>`` block — think + post-think
+    content + the tool-call render — so this returns every token index that falls
+    inside that region (the role-header and trailing ``<|im_end|>`` markers are
+    excluded). ``last_token_of_final_assistant`` returns the final element of this
+    same set and stays available as the single-token robustness read.
+    """
+    region = _final_assistant_region(full_text, assistant_marker, turn_end_marker)
+    if region is None:
+        return []
+    region_start, region_end = region
+    idxs: list[int] = []
+    for i, (start, end) in enumerate(offset_mapping):
+        if end <= region_start:
+            continue
+        if start >= region_end:
+            break
+        idxs.append(i)
+    return idxs
+
+
 def last_token_of_final_assistant(
     full_text: str,
     offset_mapping: list[tuple[int, int]],
@@ -42,12 +93,10 @@ def last_token_of_final_assistant(
     the following ``<|im_end|>`` (or end of text). This is robust to reasoning
     and tool-call rendering, unlike matching a flattened response string.
     """
-    marker_pos = full_text.rfind(assistant_marker)
-    if marker_pos < 0:
+    region = _final_assistant_region(full_text, assistant_marker, turn_end_marker)
+    if region is None:
         return None
-    region_start = marker_pos + len(assistant_marker)
-    end_pos = full_text.find(turn_end_marker, region_start)
-    region_end = end_pos if end_pos >= 0 else len(full_text)
+    region_start, region_end = region
 
     last_tok = None
     for i, (start, end) in enumerate(offset_mapping):

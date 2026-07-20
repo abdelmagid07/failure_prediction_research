@@ -7,6 +7,7 @@ dependencies = [
     "torch>=2.0.0",
     "transformers>=4.40.0",
     "numpy>=1.24.0",
+    "scipy>=1.11.0",
     "scikit-learn>=1.3.0",
     "pandas>=2.0.0",
     "matplotlib>=3.7.0",
@@ -18,7 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 # Real SWE-bench runs: the third-party mini-swe-agent drives the model, and the
 # swebench harness turns its predictions into resolved/unresolved labels.
-swe = ["mini-swe-agent>=1.0.0", "swebench>=2.0.0"]
+# Pin matches METHOD.tex (mini-swe-agent 2.4.5).
+swe = ["mini-swe-agent==2.4.5", "swebench>=2.0.0"]
 # Local no-Docker dev harness (stage2/devbugs), used for offline smoke tests.
 devbugs = ["pytest>=7.0.0"]
 
