@@ -1,8 +1,9 @@
 # HANDOFF
 
-Last updated: 2026-07-20. This file is the single entry point for anyone (human
+Last updated: 2026-07-23. This file is the single entry point for anyone (human
 or agent) picking up this project. Read it top to bottom once, then use the
 linked docs. **Methodology source of truth:** [METHOD.tex](METHOD.tex).
+**How to run end-to-end (install → 60×5 → analyses):** [RUN_GUIDE.md](RUN_GUIDE.md).
 
 ---
 
