@@ -85,7 +85,30 @@ Both must pass before you spend GPU time.
 
 ---
 
-## 3. Serve Qwen3-8B (thinking-ON + tools)
+## 3. Serve / point at a model (thinking-ON + tools)
+
+Generation supports two backends via **`MODEL_PROVIDER`**
+(`stage2/config/providers/{vllm,azure}.yaml`). Projection still needs local
+weights either way.
+
+### 3a. Azure Foundry managed compute (current 32B path)
+
+Deploy `qwen3-32b` in Foundry (Global Managed Compute). When Playground chat
+works:
+
+```bash
+# repo-root .env (see .env.example)
+export MODEL_PROVIDER=azure
+export MODEL_API_BASE="https://<resource>.services.ai.azure.com/openai/v1"
+export MODEL_API_KEY="<foundry key>"
+export MODEL_NAME="openai/qwen3-32b"   # litellm openai/* + deployment name
+```
+
+Azure rejects `chat_template_kwargs` / `enable_thinking` / `top_k`. Thinking is
+**default ON**; reasoning arrives as `message.reasoning` (normalized to
+`reasoning_content` on ingest). Delete the deployment when idle (~$/hr).
+
+### 3b. Self-hosted vLLM (8B or local 32B)
 
 On the GPU machine, in `tmux`/`screen`:
 
@@ -100,27 +123,27 @@ Required server flags (already in `serve_qwen.sh`):
 - `--enable-auto-tool-choice --tool-call-parser hermes`
 - `--reasoning-parser qwen3` (use `deepseek_r1` if your vLLM build lacks `qwen3`)
 
-Without the reasoning parser, thinking-ON + tool calls break (tool call stranded
-inside `<think>`).
-
-**Colab alternative:** `stage2/notebooks/serve_qwen_colab.ipynb` → copy the
-tunnel URL (must end in `/v1`).
-
 ```bash
-export MODEL_API_BASE="http://localhost:8000/v1"   # AWS / same-box
+export MODEL_PROVIDER=vllm          # default if unset
+export MODEL_API_BASE="http://localhost:8000/v1"
 # export MODEL_API_BASE="https://<tunnel>.trycloudflare.com/v1"  # Colab
 export MODEL_API_KEY="EMPTY"
+export MODEL_NAME="hosted_vllm/Qwen3-8B"
 ```
+
+**Switch back to 8B/vLLM:** flip the four env vars above (or comment blocks in
+`.env`). No code changes.
 
 ---
 
 ## 4. Generate trajectories
 
-Always work from `stage2/`:
+Always work from `stage2/` with provider env loaded (see §3):
 
 ```bash
 cd stage2
-export MODEL_API_BASE="${MODEL_API_BASE:-http://localhost:8000/v1}"
+# Azure example (or source ../.env):
+#   MODEL_PROVIDER=azure MODEL_NAME=openai/qwen3-32b ...
 ```
 
 ### 4a. Tiny pilot first (do not skip)

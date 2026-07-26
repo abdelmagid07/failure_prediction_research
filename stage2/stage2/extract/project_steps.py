@@ -49,6 +49,7 @@ def trajectory_uses_thinking(records: list[TrajectoryRecord]) -> bool:
             for msg in step.messages_before_gen:
                 if msg.get("role") == "assistant" and (
                     msg.get("reasoning_content")
+                    or msg.get("reasoning")  # Azure Foundry field name
                     or _THINK_RE.search(msg.get("content", "") or "")
                 ):
                     return True

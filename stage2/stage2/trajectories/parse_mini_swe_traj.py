@@ -96,9 +96,14 @@ def _clean_tool_calls(tool_calls: object) -> list[dict]:
 
 
 def _assistant_message(msg: dict) -> dict:
-    """Build the native assistant turn kept for token-level replay."""
+    """Build the native assistant turn kept for token-level replay.
+
+    Azure Foundry Qwen deployments return the think block as ``reasoning``;
+    vLLM's reasoning parser uses ``reasoning_content``. Normalize both to
+    ``reasoning_content`` so projection / thinking guards stay provider-agnostic.
+    """
     out: dict = {"role": "assistant", "content": _coerce_content(msg.get("content", ""))}
-    reasoning = msg.get("reasoning_content")
+    reasoning = msg.get("reasoning_content") or msg.get("reasoning")
     if reasoning:
         out["reasoning_content"] = _coerce_content(reasoning)
     tool_calls = _clean_tool_calls(msg.get("tool_calls"))

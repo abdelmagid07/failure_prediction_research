@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real SWE-bench batch with mini-swe-agent driving on-policy Qwen3-8B.
+# Real SWE-bench batch with mini-swe-agent driving on-policy Qwen3.
 #
 # This is the primary generation path for paper data. It replaces the legacy
 # SWE-agent path (scripts/run_pilot_batch.sh + config/swe_agent_qwen.yaml),
@@ -7,9 +7,8 @@
 #
 # Topology:
 #   - This machine (WSL2): mini-swe-agent + Docker containers + tests.
-#   - Remote A100: vLLM serving Qwen/Qwen3-8B behind a public tunnel.
-#     See notebooks/serve_qwen_colab.ipynb for the server side.
-# All neural-net inference happens remotely; only Docker/test execution is local.
+#   - Model inference: self-hosted vLLM *or* Azure Foundry managed compute.
+#     Switch with MODEL_PROVIDER (see config/providers/).
 #
 # Prerequisites (local):
 #   1. Docker daemon running and reachable from WSL2.
@@ -17,10 +16,15 @@
 #   3. A reachable remote model endpoint (set MODEL_API_BASE).
 #
 # Environment:
-#   MODEL_API_BASE   Remote OpenAI-compatible base URL, e.g.
-#                    https://<your-tunnel>.trycloudflare.com/v1
-#   MODEL_API_KEY    API key (default: EMPTY; vLLM ignores it unless started with --api-key)
-#   MODEL_NAME       litellm model id (default: hosted_vllm/Qwen3-8B)
+#   MODEL_PROVIDER   vllm (default) | azure
+#                    Selects config/providers/<name>.yaml (request-shape adapter).
+#   MODEL_API_BASE   OpenAI-compatible base URL
+#                    vllm:  http://localhost:8000/v1  or tunnel .../v1
+#                    azure: https://<resource>.services.ai.azure.com/openai/v1
+#   MODEL_API_KEY    API key (default: EMPTY for local vLLM)
+#   MODEL_NAME       litellm model id
+#                    vllm:  hosted_vllm/Qwen3-8B  (or Qwen3-32B if you self-host)
+#                    azure: openai/<deployment>   e.g. openai/qwen3-32b
 #   SUBSET           SWE-bench subset: verified | lite | <dataset path> (default: verified)
 #   SPLIT            dataset split (default: test)
 #   WORKERS          parallel workers (default: 1)
@@ -36,19 +40,31 @@
 # this layout. With ROLLOUTS=1 the run stays flat in OUTPUT_DIR (seed unset).
 #
 # Usage:
-#   export MODEL_API_BASE="https://<tunnel>.trycloudflare.com/v1"
-#   bash scripts/run_mini_swe_batch.sh                      # filter by config/pilot_instances.txt
+#   # vLLM 8B (default)
+#   export MODEL_API_BASE="http://localhost:8000/v1"
 #   bash scripts/run_mini_swe_batch.sh config/pilot_instances.txt
-#   SUBSET=verified WORKERS=4 bash scripts/run_mini_swe_batch.sh
+#
+#   # Azure Foundry 32B
+#   export MODEL_PROVIDER=azure
+#   export MODEL_API_BASE="https://<resource>.services.ai.azure.com/openai/v1"
+#   export MODEL_API_KEY="..."
+#   export MODEL_NAME="openai/qwen3-32b"
+#   bash scripts/run_mini_swe_batch.sh config/pilot_instances.txt
+#
 #   ROLLOUTS=5 bash scripts/run_mini_swe_batch.sh          # METHOD.tex 5 rollouts/task
 # Any extra args after the instances file are forwarded to `mini-extra swebench`.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+MODEL_PROVIDER="${MODEL_PROVIDER:-vllm}"
 MODEL_API_BASE="${MODEL_API_BASE:-${VLLM_URL:-http://localhost:8000/v1}}"
 MODEL_API_KEY="${MODEL_API_KEY:-EMPTY}"
-MODEL_NAME="${MODEL_NAME:-hosted_vllm/Qwen3-8B}"
+if [[ "$MODEL_PROVIDER" == "azure" ]]; then
+  MODEL_NAME="${MODEL_NAME:-openai/qwen3-32b}"
+else
+  MODEL_NAME="${MODEL_NAME:-hosted_vllm/Qwen3-8B}"
+fi
 SUBSET="${SUBSET:-verified}"
 SPLIT="${SPLIT:-test}"
 WORKERS="${WORKERS:-1}"
@@ -65,6 +81,13 @@ shift || true
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 OUTPUT_DIR="${OUTPUT_DIR:-data/trajectories/mini_swe_run_${TIMESTAMP}}"
 OVERRIDE_CFG="config/mini_swe_qwen.yaml"
+PROVIDER_CFG="config/providers/${MODEL_PROVIDER}.yaml"
+
+if [[ ! -f "$PROVIDER_CFG" ]]; then
+  echo "ERROR: unknown MODEL_PROVIDER=$MODEL_PROVIDER (no $PROVIDER_CFG)"
+  echo "  Known: vllm | azure"
+  exit 1
+fi
 
 if ! command -v mini-extra >/dev/null 2>&1; then
   echo "ERROR: mini-extra not found. Install with: pip install -e \".[swe]\""
@@ -78,16 +101,37 @@ fi
 
 # Fail fast if the remote model endpoint is unreachable, before spinning up Docker.
 if [[ "${SKIP_PREFLIGHT:-0}" != "1" ]]; then
-  echo "Preflight: checking model endpoint ${MODEL_API_BASE%/}/models ..."
-  if ! curl -fsS -m 15 -H "Authorization: Bearer ${MODEL_API_KEY}" \
-       "${MODEL_API_BASE%/}/models" >/dev/null 2>&1; then
-    echo "ERROR: cannot reach ${MODEL_API_BASE%/}/models"
-    echo "  - Is the remote vLLM server up? (notebooks/serve_qwen_colab.ipynb)"
-    echo "  - Is the tunnel URL current and does it include the /v1 suffix?"
-    echo "  - Set SKIP_PREFLIGHT=1 to bypass this check."
+  MODELS_URL="${MODEL_API_BASE%/}/models"
+  echo "Preflight: checking $MODELS_URL ..."
+  echo "  provider=$MODEL_PROVIDER  model=$MODEL_NAME  key_len=${#MODEL_API_KEY}"
+  PREFLIGHT_OK=0
+  PREFLIGHT_ERR=""
+  # Azure Foundry accepts either Bearer or api-key; try Bearer first (OpenAI SDK style).
+  for AUTH_HDR in \
+      "Authorization: Bearer ${MODEL_API_KEY}" \
+      "api-key: ${MODEL_API_KEY}"; do
+    PREFLIGHT_ERR="$(curl -sS -m 20 -w "\nHTTP %{http_code}" \
+      -H "$AUTH_HDR" "$MODELS_URL" 2>&1)" || true
+    CODE="$(printf '%s\n' "$PREFLIGHT_ERR" | sed -n 's/^HTTP //p' | tail -1)"
+    if [[ "$CODE" == "200" ]]; then
+      PREFLIGHT_OK=1
+      echo "Preflight: endpoint reachable (HTTP 200 via ${AUTH_HDR%%:*})."
+      break
+    fi
+  done
+  if [[ "$PREFLIGHT_OK" != "1" ]]; then
+    echo "ERROR: cannot reach $MODELS_URL"
+    echo "Last response (truncated):"
+    printf '%s\n' "$PREFLIGHT_ERR" | head -c 500; echo
+    echo ""
+    echo "Checklist:"
+    echo "  - MODEL_API_BASE must be .../openai/v1  (not .../chat/completions,"
+    echo "    and not .../managed-deployments/... for this preflight)"
+    echo "  - Export vars in THIS shell:  set -a && source ../.env && set +a"
+    echo "  - Azure deploy still Succeeded + Playground chat works?"
+    echo "  - Temporary bypass:  SKIP_PREFLIGHT=1 bash scripts/run_mini_swe_batch.sh ..."
     exit 1
   fi
-  echo "Preflight: endpoint reachable."
 fi
 
 mkdir -p "$OUTPUT_DIR"
@@ -106,6 +150,7 @@ else
 fi
 
 echo "=== mini-swe-agent SWE-bench batch (local Docker -> remote model) ==="
+echo "Provider:       $MODEL_PROVIDER  ($PROVIDER_CFG)"
 echo "Model endpoint: $MODEL_API_BASE"
 echo "Model name:     $MODEL_NAME"
 echo "Subset/split:   $SUBSET / $SPLIT   workers=$WORKERS   step_limit=$STEP_LIMIT"
@@ -128,63 +173,12 @@ for SEED in $(seq "$SEED_BASE" "$LAST_SEED"); do
   mkdir -p "$RUN_DIR"
   RESOLVED_CONFIG="$RUN_DIR/mini_swe_resolved.yaml"
 
-  # Resolve the run config: installed base <- our override layer <- env values.
-  # Done in Python because the merge is a deep merge and bash can't do YAML.
+  # Resolve: installed base <- shared override <- provider <- env.
   MODEL_API_BASE="$MODEL_API_BASE" MODEL_API_KEY="$MODEL_API_KEY" \
   MODEL_NAME="$MODEL_NAME" STEP_LIMIT="$STEP_LIMIT" SEED="$INJECT_SEED" \
-  OVERRIDE_CFG="$OVERRIDE_CFG" RESOLVED_CONFIG="$RESOLVED_CONFIG" \
-  python - <<'PY'
-import os, pathlib, yaml
-import minisweagent
-
-base_path = pathlib.Path(minisweagent.__file__).parent / "config" / "benchmarks" / "swebench.yaml"
-base = yaml.safe_load(base_path.read_text(encoding="utf-8")) or {}
-override = yaml.safe_load(pathlib.Path(os.environ["OVERRIDE_CFG"]).read_text(encoding="utf-8")) or {}
-
-
-def deep_merge(a: dict, b: dict) -> dict:
-    for k, v in b.items():
-        if isinstance(v, dict) and isinstance(a.get(k), dict):
-            deep_merge(a[k], v)
-        else:
-            a[k] = v
-    return a
-
-
-cfg = deep_merge(base, override)
-model = cfg.setdefault("model", {})
-model_kwargs = model.setdefault("model_kwargs", {})
-model["model_name"] = os.environ["MODEL_NAME"]
-model_kwargs["api_base"] = os.environ["MODEL_API_BASE"]
-model_kwargs["api_key"] = os.environ["MODEL_API_KEY"]
-
-step_limit = os.environ.get("STEP_LIMIT", "").strip()
-if step_limit:
-    cfg.setdefault("agent", {})["step_limit"] = int(step_limit)
-
-seed = os.environ.get("SEED", "").strip()
-if seed:
-    # vLLM reads the sampling seed from the request body; litellm forwards
-    # extra_body. Distinct seeds are what make the rollouts differ.
-    model_kwargs.setdefault("extra_body", {})["seed"] = int(seed)
-
-out = pathlib.Path(os.environ["RESOLVED_CONFIG"])
-out.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
-
-thinking = (
-    model_kwargs.get("extra_body", {})
-    .get("chat_template_kwargs", {})
-    .get("enable_thinking")
-)
-print(f"Resolved config -> {out}")
-print(f"  base:            {base_path}")
-print(f"  model_name:      {model['model_name']}")
-print(f"  api_base:        {model_kwargs['api_base']}")
-print(f"  seed:            {seed or '(unset)'}")
-print(f"  enable_thinking: {thinking}  (must be True)")
-if thinking is not True:
-    raise SystemExit("Refusing to run: enable_thinking is not True in the resolved config.")
-PY
+  OVERRIDE_CFG="$OVERRIDE_CFG" PROVIDER_CFG="$PROVIDER_CFG" \
+  RESOLVED_CONFIG="$RESOLVED_CONFIG" \
+  python scripts/resolve_mini_config.py
 
   echo ""
   echo "--- rollout seed=$SEED -> $RUN_DIR ---"

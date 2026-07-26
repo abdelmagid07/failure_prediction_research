@@ -1,0 +1,13 @@
+# Qwen3-32B projection / analysis preset (full rebuild path).
+# Stage-1 axis must be rebuilt on 32B before using this for real results.
+# Usage: load via stage2.common.config.load_preset("qwen3_32b")
+preset: qwen3_32b
+model: Qwen/Qwen3-32B
+# primary_layer TBD after Stage-1 gate on 32B — placeholder until then.
+primary_layer: 40
+layer: 40
+n_layers: 64
+hidden_dim: 5120
+axis_path: ../stage1/data/value_axis_32b.npy
+axis_manifest_path: ../stage1/data/axis_manifest_32b.json
+enable_thinking: true

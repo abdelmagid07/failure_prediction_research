@@ -22,6 +22,7 @@ import pandas as pd
 
 from stage2.common.config import load_defaults
 from stage2.common.paths import NORMALIZED_DIR, config_file, data_file
+from stage2.common.provider import chat_completion_payload, get_provider
 from stage2.trajectories.schema import TrajectoryRecord, load_trajectories_from_dir
 
 _PROB_RE = re.compile(r"(?<!\d)(0(?:\.\d+)?|1(?:\.0+)?)(?!\d)")
@@ -64,6 +65,7 @@ def _chat_completion(
     messages: list[dict],
     temperature: float = 0.0,
     enable_thinking: bool = False,
+    provider: str | None = None,
     timeout_s: int = 180,
 ) -> str:
     """One chat completion; returns content (thinking off by default for elicitation).
@@ -71,6 +73,10 @@ def _chat_completion(
     Thinking is OFF for the elicitation pass: we want a short numeric answer, not
     a long ``<think>`` block. The *trajectory* under study was generated
     thinking-on; this is a separate post-hoc pass over the same prefix.
+
+    Provider (``MODEL_PROVIDER`` / ``provider``) selects the request shape:
+    vLLM gets ``chat_template_kwargs``; Azure gets a ``/no_think`` soft-switch
+    (Foundry rejects the kwargs).
     """
     url = f"{api_base.rstrip('/')}/chat/completions"
     # Strip to OpenAI-compatible fields the endpoint accepts.
@@ -82,13 +88,14 @@ def _chat_completion(
         if m.get("role") == "tool" and m.get("tool_call_id"):
             out["tool_call_id"] = m["tool_call_id"]
         clean.append(out)
-    payload = {
-        "model": model,
-        "messages": clean,
-        "temperature": temperature,
-        "max_tokens": 32,
-        "chat_template_kwargs": {"enable_thinking": enable_thinking},
-    }
+    payload = chat_completion_payload(
+        model=model,
+        messages=clean,
+        temperature=temperature,
+        max_tokens=32,
+        enable_thinking=enable_thinking,
+        provider=get_provider(provider),
+    )
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -112,6 +119,7 @@ def elicit_for_trajectory(
     api_base: str,
     api_key: str,
     model: str,
+    provider: str | None = None,
     dry_run: bool = False,
 ) -> list[dict]:
     """Elicit P(success) at every step of one trajectory."""
@@ -137,6 +145,7 @@ def elicit_for_trajectory(
                     api_key=api_key,
                     model=model,
                     messages=messages,
+                    provider=provider,
                 )
             except (urllib.error.URLError, TimeoutError, KeyError, IndexError) as exc:
                 print(
@@ -170,12 +179,14 @@ def run(
     api_key: str,
     model: str,
     prompt_path: Path | None = None,
+    provider: str | None = None,
     dry_run: bool = False,
 ) -> pd.DataFrame:
     records = load_trajectories_from_dir(traj_dir)
     if not records:
         raise FileNotFoundError(f"No normalized trajectories in {traj_dir}")
     prompt = load_elicitation_prompt(prompt_path)
+    prov = get_provider(provider)
 
     all_rows: list[dict] = []
     for record in records:
@@ -190,6 +201,7 @@ def run(
                 api_base=api_base,
                 api_key=api_key,
                 model=model,
+                provider=prov,
                 dry_run=dry_run,
             )
         )
@@ -223,6 +235,12 @@ def main() -> None:
     )
     ap.add_argument("--prompt-path", type=Path, default=None)
     ap.add_argument(
+        "--provider",
+        default=None,
+        choices=["vllm", "azure"],
+        help="Request-shape adapter (default: MODEL_PROVIDER env or vllm)",
+    )
+    ap.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip the API; emit deterministic fake P(success) for wiring tests",
@@ -235,6 +253,7 @@ def main() -> None:
         api_key=args.api_key,
         model=args.model,
         prompt_path=args.prompt_path,
+        provider=args.provider,
         dry_run=args.dry_run,
     )
 
