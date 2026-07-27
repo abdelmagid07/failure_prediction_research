@@ -34,8 +34,50 @@ from stage2.trajectories.parse_mini_swe_traj import mini_instance_id, parse_mini
 from stage2.trajectories.parse_swe_traj import parse_swe_traj
 from stage2.trajectories.schema import TrajectoryRecord, save_trajectory
 
-_RESOLVED_KEYS = ("resolved_ids", "resolved", "resolved_instances")
-_UNRESOLVED_KEYS = ("unresolved_ids", "unresolved", "unresolved_instances")
+_RESOLVED_KEYS = ("resolved_ids", "resolved")
+_UNRESOLVED_KEYS = ("unresolved_ids", "unresolved")
+# SWE-bench harness reports empty patches in a third bucket (never applied /
+# never tested). For this project they are model failures → unresolved.
+_EMPTY_PATCH_KEYS = ("empty_patch_ids", "empty_patch")
+
+
+def _first_present(payload: dict, keys: tuple[str, ...]) -> tuple[set[str], bool]:
+    """Return (ids, key_was_present) for the first matching *list/set* key.
+
+    Skips non-sequence values so integer summary fields like
+    ``unresolved_instances: 1`` in harness reports are ignored.
+    """
+    for key in keys:
+        if key not in payload:
+            continue
+        val = payload[key]
+        if isinstance(val, (list, set, tuple)):
+            return set(val or []), True
+    return set(), False
+
+
+def load_labels(results_path: Path) -> tuple[dict[str, int], bool]:
+    """Load instance_id -> outcome from a results.json.
+
+    Returns the label map and whether an explicit unresolved list was present.
+    When only a resolved list exists (common in SWE-bench reports), the caller
+    treats any other instance as unresolved rather than dropping it.
+
+    Empty-patch ids from the harness (``empty_patch_ids``) are mapped to
+    unresolved (outcome 0): no patch means the agent did not resolve the task.
+    """
+    payload = json.loads(Path(results_path).read_text(encoding="utf-8"))
+    resolved, _ = _first_present(payload, _RESOLVED_KEYS)
+    unresolved, had_unresolved = _first_present(payload, _UNRESOLVED_KEYS)
+    empty_patch, had_empty = _first_present(payload, _EMPTY_PATCH_KEYS)
+
+    labels = {iid: 1 for iid in resolved}
+    for iid in unresolved | empty_patch:
+        labels.setdefault(iid, 0)
+    # empty_patch counts as an explicit failure label even if unresolved_ids
+    # omitted them (harness third bucket).
+    return labels, had_unresolved or had_empty
+
 
 # --- Crashed-run detection ------------------------------------------------
 # A "crashed" run failed for infrastructure reasons (API/transport error, dead
@@ -53,31 +95,6 @@ _SWEAGENT_ERROR_STATUSES = frozenset({"error"})
 _MINI_GENUINE_STATUSES = frozenset(
     {"Submitted", "LimitsExceeded", "TimeExceeded", "RepeatedFormatError"}
 )
-
-
-def _first_present(payload: dict, keys: tuple[str, ...]) -> tuple[set[str], bool]:
-    """Return (ids, key_was_present) for the first matching key."""
-    for key in keys:
-        if key in payload:
-            return set(payload[key] or []), True
-    return set(), False
-
-
-def load_labels(results_path: Path) -> tuple[dict[str, int], bool]:
-    """Load instance_id -> outcome from a results.json.
-
-    Returns the label map and whether an explicit unresolved list was present.
-    When only a resolved list exists (common in SWE-bench reports), the caller
-    treats any other instance as unresolved rather than dropping it.
-    """
-    payload = json.loads(Path(results_path).read_text(encoding="utf-8"))
-    resolved, _ = _first_present(payload, _RESOLVED_KEYS)
-    unresolved, had_unresolved = _first_present(payload, _UNRESOLVED_KEYS)
-
-    labels = {iid: 1 for iid in resolved}
-    for iid in unresolved:
-        labels.setdefault(iid, 0)
-    return labels, had_unresolved
 
 
 @dataclass(frozen=True)

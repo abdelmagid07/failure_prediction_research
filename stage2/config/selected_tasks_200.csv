@@ -1,0 +1,201 @@
+repo,instance_id,difficulty,rnd
+django/django,django__django-9296,<15 min fix,0.0002503170942696087
+sympy/sympy,sympy__sympy-13647,15 min - 1 hour,0.0029775819490937615
+pylint-dev/pylint,pylint-dev__pylint-4970,<15 min fix,0.00440378307074146
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-15100,15 min - 1 hour,0.006070725396523086
+sphinx-doc/sphinx,sphinx-doc__sphinx-8120,15 min - 1 hour,0.007938589691191504
+sympy/sympy,sympy__sympy-20428,15 min - 1 hour,0.018321041426198784
+sympy/sympy,sympy__sympy-24066,15 min - 1 hour,0.021827846143379508
+django/django,django__django-12754,15 min - 1 hour,0.02485851541719306
+django/django,django__django-16877,15 min - 1 hour,0.02721650931626343
+pytest-dev/pytest,pytest-dev__pytest-7324,15 min - 1 hour,0.02732281193950671
+sympy/sympy,sympy__sympy-13974,15 min - 1 hour,0.029348493186690656
+sympy/sympy,sympy__sympy-15976,15 min - 1 hour,0.029679363758100173
+sphinx-doc/sphinx,sphinx-doc__sphinx-11445,15 min - 1 hour,0.03141556985861559
+django/django,django__django-11820,<15 min fix,0.03909489724946361
+sympy/sympy,sympy__sympy-18763,<15 min fix,0.04141064156910301
+django/django,django__django-15127,<15 min fix,0.04231069726139275
+django/django,django__django-11141,15 min - 1 hour,0.04496683528704613
+django/django,django__django-15375,15 min - 1 hour,0.04752599903098847
+pylint-dev/pylint,pylint-dev__pylint-6386,15 min - 1 hour,0.04893759463660514
+django/django,django__django-14792,<15 min fix,0.04981010599190187
+django/django,django__django-13028,15 min - 1 hour,0.053664219729967357
+matplotlib/matplotlib,matplotlib__matplotlib-13989,<15 min fix,0.05366581205340768
+django/django,django__django-16801,<15 min fix,0.055688588766729975
+django/django,django__django-13449,1-4 hours,0.06000276595484284
+matplotlib/matplotlib,matplotlib__matplotlib-24149,<15 min fix,0.06175680391773246
+pydata/xarray,pydata__xarray-4094,<15 min fix,0.06182311167288569
+psf/requests,psf__requests-6028,15 min - 1 hour,0.06254516912302129
+pydata/xarray,pydata__xarray-3677,15 min - 1 hour,0.06587784307212677
+django/django,django__django-13012,15 min - 1 hour,0.07247617615758956
+django/django,django__django-14315,<15 min fix,0.07294796249657859
+django/django,django__django-13128,1-4 hours,0.07528227875959428
+django/django,django__django-13109,<15 min fix,0.07773494186696005
+sphinx-doc/sphinx,sphinx-doc__sphinx-10466,15 min - 1 hour,0.08171950646084528
+matplotlib/matplotlib,matplotlib__matplotlib-22865,15 min - 1 hour,0.08427141823216756
+django/django,django__django-14122,15 min - 1 hour,0.08476191990838267
+pytest-dev/pytest,pytest-dev__pytest-7982,<15 min fix,0.0861043428211234
+sphinx-doc/sphinx,sphinx-doc__sphinx-8459,<15 min fix,0.09000598740351745
+django/django,django__django-11477,15 min - 1 hour,0.09341333458953306
+sympy/sympy,sympy__sympy-24443,15 min - 1 hour,0.09525265078802085
+django/django,django__django-14493,<15 min fix,0.09734586564893986
+django/django,django__django-15128,1-4 hours,0.09833545363115874
+sympy/sympy,sympy__sympy-15345,<15 min fix,0.10359654251099612
+django/django,django__django-11099,<15 min fix,0.104593660364374
+matplotlib/matplotlib,matplotlib__matplotlib-26466,15 min - 1 hour,0.1070537913152238
+matplotlib/matplotlib,matplotlib__matplotlib-22719,<15 min fix,0.10805555480369541
+django/django,django__django-13195,15 min - 1 hour,0.11121948280275251
+django/django,django__django-15252,15 min - 1 hour,0.11190520550490908
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-14983,<15 min fix,0.11218941698810005
+django/django,django__django-14155,15 min - 1 hour,0.11308951475514378
+sympy/sympy,sympy__sympy-17655,<15 min fix,0.11523330201405635
+django/django,django__django-13658,15 min - 1 hour,0.11542530218748853
+django/django,django__django-11555,<15 min fix,0.11701745749799976
+sympy/sympy,sympy__sympy-16597,1-4 hours,0.12069658909909747
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-13328,<15 min fix,0.12162481328788127
+psf/requests,psf__requests-2317,<15 min fix,0.12247760151351747
+django/django,django__django-15268,1-4 hours,0.12328221242438774
+pydata/xarray,pydata__xarray-3305,15 min - 1 hour,0.12810674594728547
+django/django,django__django-14855,<15 min fix,0.13165666570402765
+sympy/sympy,sympy__sympy-24213,15 min - 1 hour,0.13294161265617402
+pytest-dev/pytest,pytest-dev__pytest-6197,1-4 hours,0.1338740462953184
+django/django,django__django-15382,15 min - 1 hour,0.13424197973009852
+django/django,django__django-10999,<15 min fix,0.13799776984213893
+django/django,django__django-16642,<15 min fix,0.13931478925149166
+matplotlib/matplotlib,matplotlib__matplotlib-25287,<15 min fix,0.14188470195870084
+django/django,django__django-11740,15 min - 1 hour,0.1426305945545932
+sympy/sympy,sympy__sympy-20154,15 min - 1 hour,0.14380295435283263
+astropy/astropy,astropy__astropy-14096,15 min - 1 hour,0.14448183084432997
+sphinx-doc/sphinx,sphinx-doc__sphinx-7889,<15 min fix,0.1499304071920757
+django/django,django__django-15863,<15 min fix,0.1504199132064151
+django/django,django__django-13809,15 min - 1 hour,0.15278014776339296
+django/django,django__django-11299,<15 min fix,0.15339126789659152
+pytest-dev/pytest,pytest-dev__pytest-7490,15 min - 1 hour,0.1542058358930232
+django/django,django__django-13670,15 min - 1 hour,0.1567110777223466
+django/django,django__django-15732,15 min - 1 hour,0.1577112019282104
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-13142,<15 min fix,0.15811426223864622
+django/django,django__django-14752,<15 min fix,0.16149967139005048
+django/django,django__django-11333,15 min - 1 hour,0.16260517869195232
+django/django,django__django-11149,15 min - 1 hour,0.16299608583736158
+django/django,django__django-15037,15 min - 1 hour,0.16466349004540193
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-26194,15 min - 1 hour,0.16524554658178764
+django/django,django__django-15741,<15 min fix,0.16617284814526553
+matplotlib/matplotlib,matplotlib__matplotlib-24026,15 min - 1 hour,0.1681961522152165
+django/django,django__django-13212,1-4 hours,0.1684247480018175
+django/django,django__django-13821,<15 min fix,0.17152120143222513
+sphinx-doc/sphinx,sphinx-doc__sphinx-10449,<15 min fix,0.17297137694775824
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-14894,15 min - 1 hour,0.17334532539283043
+django/django,django__django-12965,15 min - 1 hour,0.17349014554089634
+django/django,django__django-16901,15 min - 1 hour,0.17375448598287818
+django/django,django__django-16082,15 min - 1 hour,0.174809010192039
+django/django,django__django-14608,<15 min fix,0.1750083752137738
+django/django,django__django-12155,15 min - 1 hour,0.1766678739219864
+django/django,django__django-14007,1-4 hours,0.1772449406995924
+django/django,django__django-13023,<15 min fix,0.17822695557936213
+pydata/xarray,pydata__xarray-6744,15 min - 1 hour,0.1784875760358364
+pallets/flask,pallets__flask-5014,<15 min fix,0.1794706206960794
+pydata/xarray,pydata__xarray-7393,15 min - 1 hour,0.18288275629028813
+django/django,django__django-15572,<15 min fix,0.1831723413611024
+sympy/sympy,sympy__sympy-22714,<15 min fix,0.18330633848376335
+django/django,django__django-16667,15 min - 1 hour,0.18367154169867161
+django/django,django__django-13569,15 min - 1 hour,0.18430480336054997
+django/django,django__django-16429,<15 min fix,0.18450251524649355
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-11310,<15 min fix,0.18456171052993606
+sphinx-doc/sphinx,sphinx-doc__sphinx-8721,<15 min fix,0.189250106863897
+django/django,django__django-12774,15 min - 1 hour,0.19086610417265754
+sympy/sympy,sympy__sympy-19783,15 min - 1 hour,0.191357928507488
+django/django,django__django-11532,15 min - 1 hour,0.197108816676071
+sympy/sympy,sympy__sympy-17630,1-4 hours,0.19737655532652862
+matplotlib/matplotlib,matplotlib__matplotlib-26291,15 min - 1 hour,0.20014980009896297
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-14496,<15 min fix,0.2036903116374158
+django/django,django__django-16502,15 min - 1 hour,0.20473177934247178
+pydata/xarray,pydata__xarray-6938,15 min - 1 hour,0.20554632602925962
+django/django,django__django-15104,<15 min fix,0.20665509539823798
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-25102,1-4 hours,0.20674564217975538
+pytest-dev/pytest,pytest-dev__pytest-10051,15 min - 1 hour,0.2068596393279543
+django/django,django__django-12713,15 min - 1 hour,0.207419402817009
+django/django,django__django-13933,<15 min fix,0.20914989810169016
+astropy/astropy,astropy__astropy-13398,1-4 hours,0.21327485772112975
+matplotlib/matplotlib,matplotlib__matplotlib-26342,15 min - 1 hour,0.21367874051418032
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-25747,15 min - 1 hour,0.21622112781343875
+astropy/astropy,astropy__astropy-14995,<15 min fix,0.21673400815011032
+astropy/astropy,astropy__astropy-14598,15 min - 1 hour,0.2214557196622078
+sphinx-doc/sphinx,sphinx-doc__sphinx-10673,15 min - 1 hour,0.22328603753550758
+sympy/sympy,sympy__sympy-24562,<15 min fix,0.22408505677756735
+sympy/sympy,sympy__sympy-13852,1-4 hours,0.22750154799536762
+django/django,django__django-14999,<15 min fix,0.22986601496037132
+pylint-dev/pylint,pylint-dev__pylint-7080,15 min - 1 hour,0.2354693129136335
+django/django,django__django-16256,15 min - 1 hour,0.2370591274411471
+sphinx-doc/sphinx,sphinx-doc__sphinx-9698,<15 min fix,0.23775452414108053
+sphinx-doc/sphinx,sphinx-doc__sphinx-9673,15 min - 1 hour,0.23784565900743432
+django/django,django__django-16631,1-4 hours,0.23818609503434945
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-13439,<15 min fix,0.23960419321134171
+sympy/sympy,sympy__sympy-19495,<15 min fix,0.23966192533002104
+django/django,django__django-15957,1-4 hours,0.2412876255816142
+astropy/astropy,astropy__astropy-13236,15 min - 1 hour,0.24200917827077117
+sphinx-doc/sphinx,sphinx-doc__sphinx-9602,15 min - 1 hour,0.24824551753294385
+django/django,django__django-14787,<15 min fix,0.24908338837642555
+django/django,django__django-16819,15 min - 1 hour,0.254606067164774
+pytest-dev/pytest,pytest-dev__pytest-5787,1-4 hours,0.25762363206556715
+astropy/astropy,astropy__astropy-13453,15 min - 1 hour,0.26032269094308863
+django/django,django__django-14631,1-4 hours,0.2614066108157651
+psf/requests,psf__requests-1921,<15 min fix,0.2669151201205793
+django/django,django__django-15280,15 min - 1 hour,0.2694945158490075
+django/django,django__django-13810,15 min - 1 hour,0.27375777223652625
+django/django,django__django-12273,15 min - 1 hour,0.27553789072234236
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-10844,15 min - 1 hour,0.27765372021163504
+django/django,django__django-11433,<15 min fix,0.2785437698659524
+django/django,django__django-11133,<15 min fix,0.2805226171743596
+django/django,django__django-12325,1-4 hours,0.281345035476734
+django/django,django__django-16493,15 min - 1 hour,0.2849724555396581
+matplotlib/matplotlib,matplotlib__matplotlib-23412,15 min - 1 hour,0.2856425457745989
+django/django,django__django-12308,<15 min fix,0.28783173458268024
+django/django,django__django-14170,15 min - 1 hour,0.28872115427001693
+astropy/astropy,astropy__astropy-14539,15 min - 1 hour,0.2887399181845084
+django/django,django__django-13112,<15 min fix,0.28897851522742785
+django/django,django__django-13315,15 min - 1 hour,0.2890800294511362
+pydata/xarray,pydata__xarray-6721,15 min - 1 hour,0.2985139133959832
+django/django,django__django-15368,<15 min fix,0.30001777143137054
+matplotlib/matplotlib,matplotlib__matplotlib-26208,<15 min fix,0.30192737352113636
+django/django,django__django-11119,<15 min fix,0.3026257331886139
+django/django,django__django-16454,15 min - 1 hour,0.3057841164123294
+mwaskom/seaborn,mwaskom__seaborn-3187,15 min - 1 hour,0.307314685847103
+django/django,django__django-15554,15 min - 1 hour,0.31019599517966323
+sympy/sympy,sympy__sympy-20801,15 min - 1 hour,0.3105131777674113
+django/django,django__django-11087,15 min - 1 hour,0.3157646242766105
+pytest-dev/pytest,pytest-dev__pytest-6202,<15 min fix,0.31590361363693914
+sympy/sympy,sympy__sympy-21379,15 min - 1 hour,0.3170932186529429
+sympy/sympy,sympy__sympy-23534,<15 min fix,0.32080487145432507
+astropy/astropy,astropy__astropy-14182,15 min - 1 hour,0.3212809915117141
+django/django,django__django-14765,<15 min fix,0.32326687085961364
+django/django,django__django-15161,15 min - 1 hour,0.3234161573351214
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-26323,15 min - 1 hour,0.3239057669271195
+django/django,django__django-11880,<15 min fix,0.3239756746761074
+pydata/xarray,pydata__xarray-6461,<15 min fix,0.32607158837548567
+django/django,django__django-11951,<15 min fix,0.32674453327853104
+django/django,django__django-14771,15 min - 1 hour,0.3323437428367483
+django/django,django__django-14011,1-4 hours,0.3328998525061076
+sphinx-doc/sphinx,sphinx-doc__sphinx-8551,15 min - 1 hour,0.3330402184388003
+django/django,django__django-16662,15 min - 1 hour,0.3353405647280234
+django/django,django__django-13925,15 min - 1 hour,0.33616997837568735
+sympy/sympy,sympy__sympy-13877,15 min - 1 hour,0.3408530026145971
+django/django,django__django-13406,<15 min fix,0.3436069462221422
+pydata/xarray,pydata__xarray-4966,15 min - 1 hour,0.3456237656979012
+django/django,django__django-11999,15 min - 1 hour,0.3481455911336416
+matplotlib/matplotlib,matplotlib__matplotlib-25332,<15 min fix,0.34857786397872076
+django/django,django__django-11490,<15 min fix,0.35093467700268616
+pytest-dev/pytest,pytest-dev__pytest-8399,15 min - 1 hour,0.35113153304544015
+django/django,django__django-10973,15 min - 1 hour,0.35265488037499343
+astropy/astropy,astropy__astropy-14365,15 min - 1 hour,0.3532942917745807
+astropy/astropy,astropy__astropy-7166,<15 min fix,0.3566985588537611
+django/django,django__django-11734,15 min - 1 hour,0.3577713818966132
+django/django,django__django-15022,15 min - 1 hour,0.3640425271517184
+pydata/xarray,pydata__xarray-4629,<15 min fix,0.3671107615415859
+sympy/sympy,sympy__sympy-16792,15 min - 1 hour,0.36937943797514056
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-9288,15 min - 1 hour,0.37302101540880556
+django/django,django__django-17084,15 min - 1 hour,0.3826504617804824
+django/django,django__django-16612,15 min - 1 hour,0.39162157384146007
+sympy/sympy,sympy__sympy-18211,15 min - 1 hour,0.3917855014697302
+sphinx-doc/sphinx,sphinx-doc__sphinx-8475,<15 min fix,0.39398862054560607
+scikit-learn/scikit-learn,scikit-learn__scikit-learn-25232,<15 min fix,0.3940273324784814
+sympy/sympy,sympy__sympy-18199,1-4 hours,0.39466422892902675
