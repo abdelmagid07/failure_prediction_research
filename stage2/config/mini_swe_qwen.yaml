@@ -11,8 +11,12 @@
 # Default mini container lifetime is 2h (sleep 2h). Long thinking-ON trajs
 # with Azure latency often exceed that → RuntimeError when the container dies.
 # 8h is per-instance, not a global budget.
+#
+# Default pull_timeout is 120s — too short when many large SWE-bench images
+# pull in parallel (subprocess TimeoutExpired on the first worker wave).
 environment:
   container_timeout: "8h"
+  pull_timeout: 1800
 
 model:
   # Placeholder; overwritten by MODEL_NAME at resolve time.

@@ -26,7 +26,11 @@ Hard tier in the freeze: 19× `1-4 hours` — expect almost all unresolved there
 ## Pre-flight (do in order)
 
 ### Config
-`config/mini_swe_qwen.yaml` sets `environment.container_timeout: "8h"` (per-task Docker lifetime; default mini is `2h`). Confirm it is present before a long batch.
+`config/mini_swe_qwen.yaml` sets:
+- `environment.container_timeout: "8h"` (per-task Docker lifetime; default mini is `2h`)
+- `environment.pull_timeout: 1800` (image pull seconds; default mini is `120` — too short for parallel first-wave pulls → `TimeoutExpired`)
+
+Prefer `WORKERS=8` with 8 Azure instances. Confirm both settings appear in `OUTPUT_DIR/mini_swe_resolved.yaml` before a long batch.
 
 ### Azure
 1. Deploy `qwen3-32b` with **8 model instances** (same deployment name / LB).
