@@ -3,11 +3,17 @@
 Generate ICRL conversations for value-axis construction (paper Appendix A).
 
 Backends:
-  anthropic   — Claude/Opus via API (faithful Stage 1)
+  anthropic   — Claude/Opus via Anthropic API
+  openrouter  — Claude Opus 4.6 via OpenRouter (recommended for Qwen3-32B ICRL)
   local_qwen  — Qwen3-8B on local GPU
 
 Examples:
   python -m stage1.icrl_gen.generate --n 300 --output data/icrl.json --resume
+
+  # Qwen3-32B faithful path (OpenRouter Opus 4.6, paper paragraph range)
+  python -m stage1.icrl_gen.generate --n 300 --backend openrouter \
+    --target-model Qwen3-32B --min-paragraphs 3 --max-paragraphs 8 \
+    --output data/icrl_32b.json --resume
 
   # Dev preset (Qwen-local ICRL, separate artifacts)
   python -m stage1.icrl_gen.generate --n 100 --backend local_qwen \
@@ -29,7 +35,13 @@ from stage1.icrl.boundaries import extract_paragraph
 from stage1.icrl.schema import Conversation, Turn, load_conversations, save_conversations
 from stage1.icrl_gen.backends.factory import get_backend
 from stage1.icrl_gen.llm import complete
-from stage1.icrl_gen.prompts import GAME_SYSTEM_PROMPT, META_PROMPT_TEMPLATE, PHASE_INSTRUCTIONS
+from stage1.icrl_gen.prompts import (
+    DEFAULT_TARGET_MODEL,
+    GAME_SYSTEM_PROMPT,
+    META_PROMPT_TEMPLATE,
+    PHASE_INSTRUCTIONS,
+    target_model_blurb,
+)
 from stage1.icrl_gen.verify import check_and_locate, check_syntactic_criterion, judge_semantic
 from stage1.icrl_gen.wikipedia import fetch_paragraphs
 
@@ -84,12 +96,16 @@ def build_meta_prompt(
     phase: str,
     seed_paragraph: str,
     wrong_hypothesis: str | None = None,
+    *,
+    target_model: str = DEFAULT_TARGET_MODEL,
 ) -> str:
     instr = PHASE_INSTRUCTIONS[phase]
     extra = ""
     if phase == "before_discovery" and wrong_hypothesis:
         extra = f"\nYour wrong hypothesis for this turn: {wrong_hypothesis}\n"
     return META_PROMPT_TEMPLATE.format(
+        target_model=target_model,
+        target_model_blurb=target_model_blurb(target_model),
         reward_description=criterion_text,
         thinking_instruction=instr["thinking"],
         text_instruction=instr["text"],
@@ -102,8 +118,16 @@ def generate_assistant_turn(
     phase: str,
     seed_paragraph: str,
     wrong_hypothesis: str | None,
+    *,
+    target_model: str = DEFAULT_TARGET_MODEL,
 ) -> str:
-    system = build_meta_prompt(criterion_text, phase, seed_paragraph, wrong_hypothesis)
+    system = build_meta_prompt(
+        criterion_text,
+        phase,
+        seed_paragraph,
+        wrong_hypothesis,
+        target_model=target_model,
+    )
     user = "Write the assistant's single turn now (thinking tags + modified paragraph only)."
     text = complete(backend, system, user, max_tokens=768, temperature=0.8)
     if "<thinking>" not in text.lower():
@@ -147,6 +171,7 @@ def generate_conversation(
     *,
     max_turn_retries: int = DEFAULT_MAX_TURN_RETRIES,
     verbose: bool = True,
+    target_model: str = DEFAULT_TARGET_MODEL,
 ) -> Conversation | None:
     n_para = len(paragraphs)
     system_prompt = GAME_SYSTEM_PROMPT.replace("$N", str(n_para))
@@ -166,7 +191,14 @@ def generate_conversation(
             phase = "before_discovery"
             success = False
             for attempt in range(max_turn_retries):
-                raw = generate_assistant_turn(backend, criterion_text, phase, seed, wrong_hyp)
+                raw = generate_assistant_turn(
+                    backend,
+                    criterion_text,
+                    phase,
+                    seed,
+                    wrong_hyp,
+                    target_model=target_model,
+                )
                 try:
                     content = parse_assistant_or_retry(raw)
                 except ValueError:
@@ -188,7 +220,14 @@ def generate_conversation(
             feedback = "+1"
             success = False
             for attempt in range(max_turn_retries):
-                raw = generate_assistant_turn(backend, criterion_text, phase, seed, wrong_hyp)
+                raw = generate_assistant_turn(
+                    backend,
+                    criterion_text,
+                    phase,
+                    seed,
+                    wrong_hyp,
+                    target_model=target_model,
+                )
                 try:
                     content = parse_assistant_or_retry(raw)
                 except ValueError:
@@ -212,7 +251,14 @@ def generate_conversation(
             first_post_idx = len(turns)
             success = False
             for attempt in range(max_turn_retries):
-                raw = generate_assistant_turn(backend, criterion_text, phase, seed, wrong_hyp)
+                raw = generate_assistant_turn(
+                    backend,
+                    criterion_text,
+                    phase,
+                    seed,
+                    wrong_hyp,
+                    target_model=target_model,
+                )
                 try:
                     content = parse_assistant_or_retry(raw)
                 except ValueError:
@@ -259,11 +305,13 @@ def generate_batch(
     max_turn_retries: int = DEFAULT_MAX_TURN_RETRIES,
     verbose: bool = True,
     syntactic_only: bool = False,
+    target_model: str = DEFAULT_TARGET_MODEL,
 ) -> list[Conversation]:
     rng = random.Random(seed)
     backend = get_backend(backend_name)
     if verbose:
         print(f"Using ICRL backend: {backend.name}", flush=True)
+        print(f"Meta-prompt target model: {target_model}", flush=True)
 
     by_id = criteria_by_id()
     wrong_cache = load_wrong_hypotheses()
@@ -322,6 +370,7 @@ def generate_batch(
                 rng,
                 max_turn_retries=max_turn_retries,
                 verbose=verbose,
+                target_model=target_model,
             )
         except Exception as exc:  # noqa: BLE001 — one bad conversation must not kill the batch
             print(f"  SKIP {conv_id}: generation error ({type(exc).__name__}: {exc})", flush=True)
@@ -352,16 +401,30 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=300, help="Number of conversations to generate")
     ap.add_argument("--output", type=Path, default=data_file("icrl.json"))
-    ap.add_argument("--backend", default=None, help="anthropic or local_qwen (default: ICRL_BACKEND env)")
+    ap.add_argument(
+        "--backend",
+        default=None,
+        help="anthropic, openrouter, or local_qwen (default: ICRL_BACKEND env)",
+    )
+    ap.add_argument(
+        "--target-model",
+        default=DEFAULT_TARGET_MODEL,
+        help="Model name used in the Opus meta-prompt role line (default: Qwen3-8B)",
+    )
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--resume", action="store_true", help="Append to existing output, skip completed IDs")
-    ap.add_argument("--min-paragraphs", type=int, default=4)
+    ap.add_argument(
+        "--min-paragraphs",
+        type=int,
+        default=4,
+        help="Min Wikipedia paragraphs per game (paper: 3)",
+    )
     ap.add_argument("--max-paragraphs", type=int, default=8)
     ap.add_argument(
         "--max-turn-retries",
         type=int,
         default=None,
-        help="Retries per turn (default 5 anthropic, 8 local_qwen)",
+        help="Retries per turn (default 5 anthropic/openrouter, 8 local_qwen)",
     )
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument(
@@ -389,6 +452,7 @@ def main():
         max_turn_retries=max_retries,
         verbose=not args.quiet,
         syntactic_only=args.syntactic_only,
+        target_model=args.target_model,
     )
     print(f"\nDone. {len(convs)} conversations -> {args.output}", flush=True)
 

@@ -1,0 +1,18 @@
+# Faithful Qwen3-32B value axis (Jiang Appendix A construction; thinking ON extract).
+preset: qwen32b
+model: Qwen/Qwen3-32B
+n_layers: 64
+hidden_dim: 5120
+enable_thinking: true
+dtype: bfloat16
+# No published 32B AUROC; paper-like bar 0.90, soft floor 0.87 for diagnostics.
+gate_threshold: 0.90
+gate_floor: 0.87
+# Empty → run_gate picks primary from mid-late held-out AUROC argmax.
+gate_layers: []
+axis_output: value_axis_32b.npy
+manifest_output: axis_manifest_32b.json
+auroc_output: auroc_by_layer_32b.json
+plot_output: auroc_by_layer_32b.png
+activations_subdir: activations_32b
+icrl_default: icrl_32b.json

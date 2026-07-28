@@ -30,21 +30,48 @@ def check_gate(auroc_by_layer: dict, gate_layers: list[int], threshold: float) -
     return True
 
 
+def select_primary_layers(
+    auroc_by_layer: dict,
+    n_layers: int,
+    *,
+    band_lo_frac: float = 0.50,
+    band_hi_frac: float = 0.85,
+    top_k: int = 2,
+) -> list[int]:
+    """Pick top-k held-out AUROC layers in the middle–late band (Jiang: mid→late)."""
+    lo = int(n_layers * band_lo_frac)
+    hi = max(lo + 1, int(n_layers * band_hi_frac))
+    scored: list[tuple[float, int]] = []
+    for layer in range(lo, min(hi, n_layers)):
+        val = auroc_by_layer.get(str(layer), float("nan"))
+        if not np.isnan(val):
+            scored.append((float(val), layer))
+    scored.sort(reverse=True)
+    return [layer for _, layer in scored[:top_k]]
+
+
+def resolve_threshold(cfg: dict, override: float | None) -> float:
+    if override is not None:
+        return override
+    if "published_auroc" in cfg and "gate_tolerance" in cfg:
+        return float(cfg["published_auroc"]) - float(cfg["gate_tolerance"])
+    return float(cfg["gate_threshold"])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--preset",
-        choices=["default", "dev"],
+        choices=["default", "dev", "qwen32b"],
         default="default",
-        help="Config preset (default: METHOD.tex gate published-0.03; "
-        "dev: separate artifacts, 0.75 gate)",
+        help="Config preset (default / dev / qwen32b)",
     )
     ap.add_argument("--icrl", type=Path, default=None, help="ICRL JSON path")
     ap.add_argument(
         "--threshold",
         type=float,
         default=None,
-        help="Override gate threshold (default: published_auroc - gate_tolerance)",
+        help="Override gate threshold (default: published_auroc - gate_tolerance, or preset)",
     )
     ap.add_argument("--skip-extract", action="store_true", help="Use cached activations only")
     ap.add_argument("--skip-mock", action="store_true", help="Do not regenerate mock_icrl.json")
@@ -66,12 +93,8 @@ def main():
         icrl_path = cfg["icrl_path"]
     activations_dir: Path = cfg["activations_dir"]
     n_layers = args.n_layers or cfg["n_layers"]
-    if args.threshold is not None:
-        threshold = args.threshold
-    elif "published_auroc" in cfg and "gate_tolerance" in cfg:
-        threshold = float(cfg["published_auroc"]) - float(cfg["gate_tolerance"])
-    else:
-        threshold = cfg["gate_threshold"]
+    threshold = resolve_threshold(cfg, args.threshold)
+    gate_floor = float(cfg.get("gate_floor", threshold))
 
     if args.preset == "default" and not args.skip_mock and args.icrl is None:
         from tests.fixtures.icrl_mock import write_mock_icrl
@@ -102,18 +125,40 @@ def main():
     axis, meta = build_axis(activations_dir, train_criteria, n_layers)
     axis_path: Path = cfg["axis_path"]
     np.save(axis_path, axis)
+    actual_n_layers = int(axis.shape[0])
 
     print("eval_auroc", flush=True)
     results = eval_auroc(axis, activations_dir, held_out, n_layers)
-    passed = check_gate(results["auroc_by_layer"], cfg["gate_layers"], threshold)
+
+    gate_layers = list(cfg.get("gate_layers") or [])
+    auto_selected = False
+    if not gate_layers:
+        gate_layers = select_primary_layers(results["auroc_by_layer"], actual_n_layers)
+        auto_selected = True
+        print(
+            f"Auto-selected gate layers (mid-late AUROC): {gate_layers}",
+            flush=True,
+        )
+    if not gate_layers:
+        raise SystemExit("No gate layers available (empty config and empty AUROC scores)")
+
+    passed = check_gate(results["auroc_by_layer"], gate_layers, threshold)
+    primary = gate_layers[0]
+    primary_auroc = results["auroc_by_layer"].get(str(primary), float("nan"))
 
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "preset": cfg["preset"],
+        "model": cfg.get("model"),
+        "enable_thinking": cfg.get("enable_thinking"),
         "output": str(axis_path),
         "shape": list(axis.shape),
         "gate_threshold": threshold,
-        "gate_layers": cfg["gate_layers"],
+        "gate_floor": gate_floor,
+        "gate_layers": gate_layers,
+        "gate_layers_auto_selected": auto_selected,
+        "primary_layer": primary,
+        "primary_auroc": primary_auroc,
         "gate_passed": passed,
         "auroc_by_layer": results["auroc_by_layer"],
         "n_held_out_conversations": results.get("n_held_out_conversations"),
@@ -128,7 +173,9 @@ def main():
     auroc_out = {
         **results,
         "gate_threshold": threshold,
-        "gate_layers": cfg["gate_layers"],
+        "gate_floor": gate_floor,
+        "gate_layers": gate_layers,
+        "primary_layer": primary,
         "preset": cfg["preset"],
     }
     if args.preset == "default":
@@ -141,10 +188,21 @@ def main():
 
     print(f"axis -> {axis_path}", flush=True)
     print(f"manifest -> {manifest_path}", flush=True)
-    for layer in cfg["gate_layers"]:
+    for layer in gate_layers:
         val = results["auroc_by_layer"].get(str(layer), float("nan"))
         status = "pass" if not np.isnan(val) and val >= threshold else "fail"
         print(f"  L{layer}: {val:.4f} [{status}] (threshold {threshold})", flush=True)
+    if (
+        not passed
+        and not np.isnan(primary_auroc)
+        and primary_auroc >= gate_floor
+        and primary_auroc < threshold
+    ):
+        print(
+            f"  note: primary AUROC {primary_auroc:.4f} is above soft floor "
+            f"{gate_floor} but below gate {threshold}",
+            flush=True,
+        )
 
     if passed:
         sys.exit(0)

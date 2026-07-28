@@ -17,7 +17,7 @@ def load_defaults() -> dict[str, Any]:
 
 
 def load_preset(name: str = "default") -> dict[str, Any]:
-    """Load config for a named preset. ``default`` is the faithful Stage 1 path."""
+    """Load config for a named preset. ``default`` is the faithful Stage 1 8B path."""
     if name == "default":
         cfg = load_defaults()
         cfg["activations_dir"] = DATA_DIR / "activations"
@@ -37,6 +37,10 @@ def load_preset(name: str = "default") -> dict[str, Any]:
 
     cfg = load_defaults()
     cfg.update(preset)
+
+    # Presets may set gate_layers: [] to trigger auto-selection in run_gate.
+    if "gate_layers" in preset and preset["gate_layers"] is None:
+        cfg["gate_layers"] = []
 
     cfg["activations_dir"] = DATA_DIR / preset.get("activations_subdir", "activations")
     cfg["axis_path"] = DATA_DIR / preset["axis_output"]
