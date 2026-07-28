@@ -1,5 +1,9 @@
 # HANDOFF
 
+> **Live pickup (2026-07-27+):** use **[HANDOFF_CURRENT.md](HANDOFF_CURRENT.md)**
+> first — primary 200-run / Azure 32B / mid-generation status. This file is
+> older (8B / 60×5 framing) and partially stale.
+
 Last updated: 2026-07-23. This file is the single entry point for anyone (human
 or agent) picking up this project. Read it top to bottom once, then use the
 linked docs. **Methodology source of truth:** [METHOD.tex](METHOD.tex).
