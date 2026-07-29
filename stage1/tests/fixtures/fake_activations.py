@@ -37,22 +37,18 @@ def write_fake_activations(
         if post_turn is None:
             continue
 
-        acts = rng.standard_normal((n_layers, seq_len, hidden_dim)).astype(np.float16)
-        labels = np.full(seq_len, -1, dtype=np.int8)
-
         pre_idx = list(range(seq_len // 4, seq_len // 2))
         post_idx = list(range(seq_len // 2, 3 * seq_len // 4))
-        for i in pre_idx:
-            labels[i] = 0
-        for i in post_idx:
-            labels[i] = 1
+        n_labeled = len(pre_idx) + len(post_idx)
+        acts = rng.standard_normal((n_layers, n_labeled, hidden_dim)).astype(np.float16)
+        labels = np.array([0] * len(pre_idx) + [1] * len(post_idx), dtype=np.int8)
 
         offset = -1.5 if conv.criterion_id in split["train"] else 1.5
         for layer in range(n_layers):
-            for i in pre_idx:
-                acts[layer, i] += (offset * direction[layer]).astype(np.float16)
-            for i in post_idx:
-                acts[layer, i] += (-offset * direction[layer]).astype(np.float16)
+            for j in range(len(pre_idx)):
+                acts[layer, j] += (offset * direction[layer]).astype(np.float16)
+            for j in range(len(post_idx)):
+                acts[layer, len(pre_idx) + j] += (-offset * direction[layer]).astype(np.float16)
 
         out = ACTIVATIONS_DIR / f"{conv.conv_id}.npz"
         np.savez_compressed(
@@ -61,6 +57,9 @@ def write_fake_activations(
             token_labels=labels,
             pre_indices=np.array(pre_idx, dtype=np.int32),
             post_indices=np.array(post_idx, dtype=np.int32),
+            seq_len_full=np.int32(seq_len),
+            n_labeled=np.int32(n_labeled),
+            activation_format=np.array("labeled_v1"),
             criterion_id=conv.criterion_id,
             conv_id=conv.conv_id,
         )

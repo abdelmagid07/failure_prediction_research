@@ -60,18 +60,28 @@ def extract_one(
         model(input_ids=input_ids)
     layer_acts = capture.all_layers(n_layers).numpy()  # (L, seq, hidden)
 
-    token_labels = np.full(len(enc["input_ids"]), -1, dtype=np.int8)
+    # Full-seq labels (for index bookkeeping); disk cache keeps labeled tokens only.
+    token_labels_full = np.full(len(enc["input_ids"]), -1, dtype=np.int8)
     for i in spans.pre_indices:
-        token_labels[i] = 0
+        token_labels_full[i] = 0
     for i in spans.post_indices:
-        token_labels[i] = 1
+        token_labels_full[i] = 1
+
+    keep = token_labels_full >= 0
+    # Drive-safe: only pre/post tokens (build_axis / eval_auroc ignore the rest).
+    # Shape (L, n_labeled, H) instead of (L, full_seq, H) — ~10–50× smaller.
+    labeled_acts = layer_acts[:, keep, :].astype(np.float16)
+    labeled_labels = token_labels_full[keep]
 
     capture.remove()
     return {
-        "layer_activations": layer_acts.astype(np.float16),
-        "token_labels": token_labels,
+        "layer_activations": labeled_acts,
+        "token_labels": labeled_labels,
         "pre_indices": np.array(spans.pre_indices, dtype=np.int32),
         "post_indices": np.array(spans.post_indices, dtype=np.int32),
+        "seq_len_full": np.int32(len(enc["input_ids"])),
+        "n_labeled": np.int32(int(keep.sum())),
+        "activation_format": np.array("labeled_v1"),
         "criterion_id": conv.criterion_id,
         "conv_id": conv.conv_id,
     }
@@ -133,7 +143,14 @@ def run(
 
         np.savez_compressed(out_path, **result)
         written.append(out_path)
-        print(f"  saved {conv.conv_id} -> {out_path}", flush=True)
+        n_lab = int(result["n_labeled"])
+        seq_full = int(result["seq_len_full"])
+        mb = out_path.stat().st_size / 1e6
+        print(
+            f"  saved {conv.conv_id} -> {out_path} "
+            f"(labeled {n_lab}/{seq_full} tok, {mb:.1f} MB)",
+            flush=True,
+        )
 
     return written
 

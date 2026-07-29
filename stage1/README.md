@@ -41,6 +41,7 @@ python -m stage1.icrl_gen.generate --n 300 --backend openrouter \
 
 ```bash
 # extract (GPU, long; resume-safe — skips existing .npz)
+# Caches are labeled-token-only (pre/post), Drive-sized — not full-sequence.
 python -m stage1.pipeline.run_gate --preset qwen32b --stage extract \
   --icrl data/icrl_32b.json --activations-dir /path/to/activations_32b
 
