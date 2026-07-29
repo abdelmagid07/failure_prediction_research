@@ -36,17 +36,26 @@ python -m stage1.icrl_gen.generate --n 300 --backend openrouter \
   --output data/icrl_32b.json --resume
 ```
 
-2. **Colab A100 — extract + gate:** upload `icrl_32b.json` in
+2. **Colab A100 — three stages** (separate notebook cells; resume extract on Drive):
    [notebooks/stage1_gpu_colab_32b.ipynb](notebooks/stage1_gpu_colab_32b.ipynb)
-   (or locally if you have GPU):
 
 ```bash
-python -m stage1.pipeline.run_gate --preset qwen32b \
-  --icrl data/icrl_32b.json --force-extract
+# extract (GPU, long; resume-safe — skips existing .npz)
+python -m stage1.pipeline.run_gate --preset qwen32b --stage extract \
+  --icrl data/icrl_32b.json --activations-dir /path/to/activations_32b
+
+# build axis (no model load)
+python -m stage1.pipeline.run_gate --preset qwen32b --stage build \
+  --activations-dir /path/to/activations_32b
+
+# gate / AUROC (no model load; needs value_axis_32b.npy)
+python -m stage1.pipeline.run_gate --preset qwen32b --stage gate \
+  --activations-dir /path/to/activations_32b
 ```
 
-Artifacts (do not overwrite 8B): `value_axis_32b.npy` (64×5120),
-`axis_manifest_32b.json`, AUROC plot. Primary layer = mid–late held-out AUROC argmax; gate ≥ **0.90**.
+`--stage all` still runs extract→build→gate in one process. Artifacts (do not overwrite 8B):
+`value_axis_32b.npy` (64×5120), `axis_manifest_32b.json`, AUROC plot.
+Primary layer = mid–late held-out AUROC argmax; gate ≥ **0.90**.
 
 ## Dev preset
 
