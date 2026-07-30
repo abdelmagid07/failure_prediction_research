@@ -1,0 +1,51 @@
+% Requires preamble colors/packages as in og_paper.tex:
+%   \usepackage{tikz}\usepackage{pgfplots}\pgfplotsset{compat=1.18}
+%   \definecolor{darkblue}{rgb}{0.1,0.2,0.5}
+%   \definecolor{accentred}{rgb}{0.75,0.22,0.17}
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.72\linewidth,
+  height=0.445\linewidth,
+  xlabel={Layer},
+  ylabel={Held-out AUROC},
+  xmin=-0.5, xmax=63.5,
+  ymin=0.50, ymax=1.00,
+  xtick={0,16,32,48,63},
+  ytick={0.5,0.6,0.7,0.8,0.9,1.0},
+  tick label style={font=\small},
+  label style={font=\small},
+  legend style={
+    font=\footnotesize,
+    at={(0.03,0.97)},
+    anchor=north west,
+    draw=none,
+    fill=none,
+    inner sep=1pt,
+    row sep=0.5pt,
+  },
+  grid=major,
+  grid style={line width=0.3pt, gray!25},
+  axis line style={line width=0.6pt},
+  tick style={line width=0.6pt},
+]
+\addplot[
+  darkblue,
+  line width=1.1pt,
+  mark=*,
+  mark size=1.05pt,
+  mark options={solid, fill=white, draw=darkblue, line width=0.6pt},
+  mark repeat=4,
+]
+table[x=layer, y=auroc] {figures/auroc_by_layer_32b.dat};
+\addlegendentry{Qwen3-32B (thinking ON)}
+
+\addplot[
+  only marks,
+  mark=diamond*,
+  mark size=2.6pt,
+  accentred,
+  mark options={fill=accentred, draw=white, line width=0.4pt},
+] coordinates {(49,0.8716164082)};
+\addlegendentry{Primary L49 (0.872)}
+\end{axis}
+\end{tikzpicture}

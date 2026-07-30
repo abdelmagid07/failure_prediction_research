@@ -1,0 +1,16 @@
+{
+  "n_layers": 64,
+  "primary_layer": 49,
+  "primary_auroc": 0.8716164082333631,
+  "n_held_out_conversations": 150,
+  "early_layers": "0-3",
+  "late_layers": "50-63",
+  "early_vs_late_mean_dir_cosine": 0.11141338874815795,
+  "midlate_block": "32-54",
+  "midlate_block_mean_cosine": 0.7555143628448205,
+  "first_layer_cos_to_late_gt_0.5": 29,
+  "sim_full_range": [
+    -0.039243261136208615,
+    1.0000000000000004
+  ]
+}
