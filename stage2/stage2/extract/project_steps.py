@@ -209,6 +209,35 @@ class ActivationSink:
         )
         print(f"Wrote {activations.shape[0]} activation vectors to {path}", flush=True)
 
+    @classmethod
+    def load(cls, path: Path) -> "ActivationSink":
+        """Resume from a previously written activations dump."""
+        data = np.load(path, allow_pickle=False)
+        sink = cls()
+        acts = data["activations"]
+        for i in range(acts.shape[0]):
+            sink._vecs.append(np.asarray(acts[i], dtype=np.float16))
+            sink.trajectory_id.append(str(data["trajectory_id"][i]))
+            sink.task_id.append(str(data["task_id"][i]))
+            sink.seed.append(int(data["seed"][i]))
+            sink.outcome.append(int(data["outcome"][i]))
+            sink.step_index.append(int(data["step_index"][i]))
+            sink.rel_pos.append(float(data["rel_pos"][i]))
+            sink.layer.append(int(data["layer"][i]))
+        return sink
+
+    def drop_trajectory(self, trajectory_id: str) -> None:
+        """Remove any rows for ``trajectory_id`` (used before re-projecting)."""
+        keep = [i for i, t in enumerate(self.trajectory_id) if t != trajectory_id]
+        self._vecs = [self._vecs[i] for i in keep]
+        self.trajectory_id = [self.trajectory_id[i] for i in keep]
+        self.task_id = [self.task_id[i] for i in keep]
+        self.seed = [self.seed[i] for i in keep]
+        self.outcome = [self.outcome[i] for i in keep]
+        self.step_index = [self.step_index[i] for i in keep]
+        self.rel_pos = [self.rel_pos[i] for i in keep]
+        self.layer = [self.layer[i] for i in keep]
+
 
 def extract_rows_for_trajectory(
     record: TrajectoryRecord,
@@ -266,45 +295,64 @@ def extract_rows_for_trajectory(
         if not gen_idx:
             continue
 
+        # Keep only in-range generated positions (hooks store just these tokens).
+        seq_len = len(input_ids_list)
+        valid = [t for t in gen_idx if t < seq_len]
+        if not valid:
+            continue
+
         input_ids = torch.tensor([input_ids_list], device=device)
-        capture = LayerActivationCapture(model, n_layers=n_layers)
-        with torch.no_grad():
-            model(input_ids=input_ids)
+        # token_indices + CPU store: avoid parking 64×seq×hidden on the GPU.
+        # Backbone-only forward: skip lm_head logits (seq×vocab), which OOMs on
+        # long late agent steps even when residual hooks would otherwise fit.
+        capture = LayerActivationCapture(
+            model,
+            n_layers=n_layers,
+            token_indices=valid,
+            store_device="cpu",
+        )
+        try:
+            with torch.no_grad():
+                model.model(input_ids=input_ids, use_cache=False)
 
-        for layer in layers:
-            layer_act = capture.get(layer)
-            if layer_act is None:
-                continue
-            if layer_act.dim() == 3:
-                layer_act = layer_act[0]
-            seq_len = layer_act.shape[0]
-            valid = [t for t in gen_idx if t < seq_len]
-            if not valid:
-                continue
-            acts = layer_act[valid].float()  # (|G_t|, hidden)
-            cos = cosine_projection(acts, directions[layer])  # (|G_t|,)
-            rows.append(
-                {
-                    "task_id": record.task_id,
-                    "trajectory_id": record.trajectory_id,
-                    "seed": record.seed,
-                    "outcome": record.outcome,
-                    "exit_status": record.exit_status,
-                    "step_index": i,
-                    "n_steps": n_steps,
-                    "rel_pos": rp,
-                    "layer": layer,
-                    "proj_mean": float(cos.mean().item()),
-                    "proj_final": float(cos[-1].item()),
-                    "n_gen_tokens": len(valid),
-                }
-            )
-            if activation_sink is not None:
-                activation_sink.add(
-                    record, i, rp, layer, acts.mean(dim=0).cpu().numpy()
+            for layer in layers:
+                layer_act = capture.get(layer)
+                if layer_act is None:
+                    continue
+                if layer_act.dim() == 3:
+                    layer_act = layer_act[0]
+                acts = layer_act.float()  # (|G_t|, hidden) already indexed
+                if acts.shape[0] == 0:
+                    continue
+                direction = directions[layer]
+                if direction.device.type != "cpu":
+                    direction = direction.cpu()
+                cos = cosine_projection(acts, direction)  # (|G_t|,)
+                rows.append(
+                    {
+                        "task_id": record.task_id,
+                        "trajectory_id": record.trajectory_id,
+                        "seed": record.seed,
+                        "outcome": record.outcome,
+                        "exit_status": record.exit_status,
+                        "step_index": i,
+                        "n_steps": n_steps,
+                        "rel_pos": rp,
+                        "layer": layer,
+                        "proj_mean": float(cos.mean().item()),
+                        "proj_final": float(cos[-1].item()),
+                        "n_gen_tokens": int(acts.shape[0]),
+                    }
                 )
-
-        capture.remove()
+                if activation_sink is not None:
+                    activation_sink.add(
+                        record, i, rp, layer, acts.mean(dim=0).numpy()
+                    )
+        finally:
+            capture.remove()
+            del input_ids
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
 
     return rows
 
@@ -343,20 +391,49 @@ def run(
         trust_remote_code=True,
     ).eval()
     device = next(model.parameters()).device
+    # Cosine is run on CPU against gen-token activations (VRAM-safe for long trajs).
     directions = {
-        L: torch.tensor(v, dtype=torch.float32, device=device)
+        L: torch.tensor(v, dtype=torch.float32, device="cpu")
         for L, v in directions_np.items()
     }
 
-    activation_sink = ActivationSink() if activations_npz is not None else None
+    activation_sink = None
+    if activations_npz is not None:
+        if activations_npz.exists():
+            activation_sink = ActivationSink.load(activations_npz)
+            print(
+                f"Resumed {len(activation_sink.trajectory_id)} activation rows from "
+                f"{activations_npz}",
+                flush=True,
+            )
+        else:
+            activation_sink = ActivationSink()
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    done_ids: set[str] = set()
     all_rows: list[dict] = []
+    if output_path.exists():
+        prev = pd.read_parquet(output_path)
+        if len(prev):
+            all_rows = prev.to_dict(orient="records")
+            done_ids = set(prev["trajectory_id"].astype(str).unique())
+            print(
+                f"Resuming: {len(done_ids)} trajectories already in {output_path}",
+                flush=True,
+            )
+
     fidelity_state: dict = {"checked": False}
     for record in records:
+        tid = record.trajectory_id
+        if tid in done_ids:
+            print(f"  {tid}: skip (already projected)", flush=True)
+            continue
         print(
-            f"  {record.trajectory_id}: {record.n_steps} steps, outcome={record.outcome}",
+            f"  {tid}: {record.n_steps} steps, outcome={record.outcome}",
             flush=True,
         )
+        if activation_sink is not None:
+            activation_sink.drop_trajectory(tid)
         rows = extract_rows_for_trajectory(
             record,
             model,
@@ -370,11 +447,17 @@ def run(
             activation_sink=activation_sink,
         )
         all_rows.extend(rows)
+        done_ids.add(tid)
         print(f"    -> {len(rows)} projection rows", flush=True)
 
+        # Checkpoint after each traj so Colab OOMs / disconnects don't lose work.
+        df = pd.DataFrame(all_rows)
+        df.to_parquet(output_path, index=False)
+        if activation_sink is not None:
+            activation_sink.save(activations_npz)
+        print(f"    checkpointed {len(df)} rows -> {output_path}", flush=True)
+
     df = pd.DataFrame(all_rows)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(output_path, index=False)
     print(f"Wrote {len(df)} rows to {output_path}", flush=True)
 
     if activation_sink is not None:

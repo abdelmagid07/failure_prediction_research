@@ -17,18 +17,43 @@ def cosine_projection(activations: torch.Tensor, direction: torch.Tensor) -> tor
 
 
 class LayerActivationCapture:
-    """Register forward hooks on all transformer layers and collect last forward pass."""
+    """Register forward hooks on all transformer layers and collect last forward pass.
 
-    def __init__(self, model, n_layers: int = 36):
+    ``token_indices`` (optional): if set, only those sequence positions are kept
+    (saves VRAM on long agent contexts). ``store_device`` defaults to the
+    activation device; use ``"cpu"`` for Stage-2 projection of long trajectories.
+    """
+
+    def __init__(
+        self,
+        model,
+        n_layers: int = 36,
+        token_indices: list[int] | None = None,
+        store_device: str | torch.device | None = None,
+    ):
         self._storage: dict[int, torch.Tensor] = {}
         self._handles = []
+        self._token_indices = token_indices
+        self._store_device = store_device
 
         for layer_idx in range(n_layers):
             layer = model.model.layers[layer_idx]
 
             def hook_fn(module, inp, output, idx=layer_idx):
                 hs = output[0] if isinstance(output, tuple) else output
-                self._storage[idx] = hs.detach()
+                hs = hs.detach()
+                if hs.dim() == 3:
+                    hs = hs[0]
+                if self._token_indices is not None:
+                    # Index on-GPU before optional CPU move so we never park the
+                    # full residual stream for long SWE contexts.
+                    idx_t = torch.as_tensor(
+                        self._token_indices, device=hs.device, dtype=torch.long
+                    )
+                    hs = hs.index_select(0, idx_t)
+                if self._store_device is not None:
+                    hs = hs.to(self._store_device)
+                self._storage[idx] = hs
 
             self._handles.append(layer.register_forward_hook(hook_fn))
 
