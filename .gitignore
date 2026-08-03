@@ -16,3 +16,9 @@ venv/
 **/data/trajectories/
 **/.env
 !.env.example
+
+# Large local/pilot artifacts (keep on disk/Drive, not GitHub)
+*.npz
+*_results.zip
+stage2_pilot_32b_results.zip
+_pilot_analysis/activations/

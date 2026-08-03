@@ -1,0 +1,136 @@
+{
+  "activations": "..\\_pilot_analysis\\activations\\agentic_meanpool_32b_pilot.npz",
+  "length_band": {
+    "min_steps": 4,
+    "max_steps": 12
+  },
+  "traj_counts": {
+    "n_total": 100,
+    "n_success": 14,
+    "n_failure": 86,
+    "n_steps_by_outcome": {
+      "count": {
+        "0": 86.0,
+        "1": 14.0
+      },
+      "mean": {
+        "0": 13.116279069767442,
+        "1": 7.357142857142857
+      },
+      "std": {
+        "0": 12.410070488164191,
+        "1": 2.9248837677666875
+      },
+      "min": {
+        "0": 4.0,
+        "1": 4.0
+      },
+      "25%": {
+        "0": 6.0,
+        "1": 5.0
+      },
+      "50%": {
+        "0": 8.0,
+        "1": 7.0
+      },
+      "75%": {
+        "0": 13.75,
+        "1": 10.25
+      },
+      "max": {
+        "0": 59.0,
+        "1": 12.0
+      }
+    },
+    "n_traj_above_max_steps": 23,
+    "n_success_above_max_steps": 0,
+    "n_band": 77,
+    "n_success_in_band": 14,
+    "n_failure_in_band": 63
+  },
+  "length_only_traj_auroc": {
+    "unit": "trajectory",
+    "feature": "n_steps",
+    "n": 100,
+    "n_success": 14,
+    "n_failure": 86,
+    "auroc": 0.3600498338870432,
+    "note": "Higher n_steps predicting failure => AUROC of n_steps for success may be <0.5; separability = max(a, 1-a).",
+    "separability": 0.6399501661129567
+  },
+  "length_only_cv_L49_late_bin": {
+    "layer": 49,
+    "bin": 4,
+    "feature": "n_steps",
+    "auroc": 0.7183464709982067,
+    "n": 290,
+    "n_folds_used": 5
+  },
+  "length_only_cv_L49_bin3": {
+    "layer": 49,
+    "bin": 3,
+    "feature": "n_steps",
+    "auroc": 0.8221525619500113,
+    "n": 199,
+    "n_folds_used": 5
+  },
+  "activation_probes_in_band": {
+    "grid_mean_auroc": 0.6715528522448503,
+    "grid_max_auroc": 0.7726859213250518,
+    "grid_median_auroc": 0.6734126984126985,
+    "n_valid_cells": 55,
+    "l49_bins": [
+      {
+        "bin": 0,
+        "auroc": 0.6938702895345782,
+        "n": 123,
+        "n_folds_used": 5
+      },
+      {
+        "bin": 1,
+        "auroc": 0.7119728506787331,
+        "n": 94,
+        "n_folds_used": 5
+      },
+      {
+        "bin": 2,
+        "auroc": 0.5997407407407408,
+        "n": 118,
+        "n_folds_used": 5
+      },
+      {
+        "bin": 3,
+        "auroc": 0.5977855477855478,
+        "n": 72,
+        "n_folds_used": 5
+      },
+      {
+        "bin": 4,
+        "auroc": 0.6880802055087769,
+        "n": 145,
+        "n_folds_used": 5
+      }
+    ]
+  },
+  "grid_csv": "..\\_pilot_analysis\\length_confound\\probe_auroc_grid_steps_4_12.csv",
+  "interpretation_hints": [
+    "If length-only separability is high, length is predictive of failure.",
+    "If band-restricted probe grid_mean stays well above chance and above length-only CV, probes are not solely length.",
+    "If band-restricted probes collapse to ~0.5, treat pilot probe hit as length-confounded."
+  ],
+  "length_only_in_band": {
+    "traj_auroc_n_steps": 0.4915,
+    "traj_separability": 0.5085,
+    "cv_L49_late_bin_auroc": 0.5762,
+    "cv_L49_bin3_auroc": 0.3907,
+    "note": "Within [4,12], length barely predicts outcome; length-only CV ~chance-weak."
+  },
+  "comparison_layers_45_55": {
+    "full_grid_mean": 0.7895,
+    "full_L49_late": 0.8336,
+    "band_grid_mean": 0.6716,
+    "band_L49_late": 0.6881,
+    "band_L49_late_minus_length_cv_band": 0.1119
+  },
+  "verdict": "Length IS a partial confound on the full pilot (length-only CV up to ~0.72-0.82; 0 successes with n_steps>12). Restricting to [4,12] removes length signal (traj AUROC~0.49) and activation probes drop (L49 late 0.83->0.69; grid mean 0.79->0.67) but remain above chance and above in-band length-only CV (~0.58). So probes are not solely length, but the full-pilot probe numbers were inflated by long failures."
+}

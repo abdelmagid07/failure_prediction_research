@@ -1,0 +1,79 @@
+{
+  "n_trajectories": 100,
+  "n_success": 14,
+  "n_failure": 86,
+  "n_projection_rows": 1231,
+  "final_step_auroc": 0.4875415282392027,
+  "final_step_auroc_ci": [
+    0.32612683801687065,
+    0.6508098035662891
+  ],
+  "final_step_signal": false,
+  "majority_baseline": 0.86,
+  "permutation_p": 0.8845577211394303,
+  "final_step_auroc_proj_final": 0.49169435215946844,
+  "final_step_separability": 0.5124584717607973,
+  "within_task_n_mixed": 0,
+  "within_task_mean_gap": NaN,
+  "auroc_by_position": [
+    {
+      "bin": 0,
+      "rel_pos_mid": 0.1,
+      "n": 264,
+      "auroc": 0.3386551465063862,
+      "ci_low": 0.24668788259910726,
+      "ci_high": 0.4417289110126496,
+      "signal": true,
+      "majority_baseline": 0.9166666666666666
+    },
+    {
+      "bin": 1,
+      "rel_pos_mid": 0.3,
+      "n": 225,
+      "auroc": 0.26489533011272137,
+      "ci_low": 0.1849112349654048,
+      "ci_high": 0.3845680622372529,
+      "signal": true,
+      "majority_baseline": 0.92
+    },
+    {
+      "bin": 2,
+      "rel_pos_mid": 0.5,
+      "n": 253,
+      "auroc": 0.36654064272211717,
+      "ci_low": 0.18242629202805993,
+      "ci_high": 0.5346725495323511,
+      "signal": false,
+      "majority_baseline": 0.9090909090909091
+    },
+    {
+      "bin": 3,
+      "rel_pos_mid": 0.7,
+      "n": 199,
+      "auroc": 0.456989247311828,
+      "ci_low": 0.28253360413603357,
+      "ci_high": 0.6223870433094201,
+      "signal": false,
+      "majority_baseline": 0.9346733668341709
+    },
+    {
+      "bin": 4,
+      "rel_pos_mid": 0.9,
+      "n": 290,
+      "auroc": 0.49204337417265176,
+      "ci_low": 0.34964975930896225,
+      "ci_high": 0.6440504528808456,
+      "signal": false,
+      "majority_baseline": 0.906896551724138
+    }
+  ],
+  "auroc_by_position_csv": "/content/drive/MyDrive/failure_prediction_research/stage2_pilot_32b/outputs/analysis_report_pilot/auroc_by_position.csv",
+  "late_bin_separation_to_noise": 0.022500202844713955,
+  "proj_mean_readout_std": 0.015404458697328746,
+  "proj_final_readout_std": 0.025448679780409447,
+  "mean_to_final_std_ratio": 0.6053146501213471,
+  "snr_by_position_csv": "/content/drive/MyDrive/failure_prediction_research/stage2_pilot_32b/outputs/analysis_report_pilot/snr_by_position.csv",
+  "final_step_plot": "/content/drive/MyDrive/failure_prediction_research/stage2_pilot_32b/outputs/analysis_report_pilot/final_step_separation.png",
+  "noise_by_token_type_plot": "/content/drive/MyDrive/failure_prediction_research/stage2_pilot_32b/outputs/analysis_report_pilot/noise_by_token_type.png",
+  "interpretation": "Final-step AUROC 0.488 [0.326, 0.651] vs majority baseline 0.860: no signal (CI includes 0.5); permutation p=0.8845577211394303. Late-bin separation-to-noise is below 1 (secondary). Mean-over-G_t readout std (0.015) < final-token std (0.025)."
+}

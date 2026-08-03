@@ -1,0 +1,209 @@
+\documentclass{article}
+
+\usepackage[preprint]{examples/neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+
+\begin{document}
+
+
+% =====================================================================
+% RESULTS — scaffold, outcome-agnostic
+% Conventions used below:
+%   [FILL: x]        — one value or phrase to insert
+%   [BRANCH A/B/C]   — pick one sentence variant per your outcome
+%                       (A = clean transfer, B = partial, C = none)
+%   %% FIG here      — figure placement marker with spec
+%   All AUROCs reported as: value [95% CI lo, hi] vs majority-class
+%   baseline [FILL].
+% =====================================================================
+
+\section{Results}
+
+\subsection{Reconstruction and Data Overview}
+% Purpose: certify the instrument, describe the data. No findings yet.
+
+Our reconstruction of the value axis reproduces the published single-turn separation: held-out AUROC of 0.872 at layer 49. with the strongest separation at layers 45-50, consistent with the original report. Layer 49 is fixed as the primary layer for all subsequent analyses.
+
+\begin{figure}[ht]
+  \begin{minipage}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/fig_auroc_by_layer_32b_panel.pdf}
+    \small\textbf{(a)} Held-out AUROC by layer.
+  \end{minipage}
+  \hfill
+  \begin{minipage}[b]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/fig_axis_cosine_32b_panel.pdf}
+    \small\textbf{(b)} Pairwise similarity across layers.
+  \end{minipage}
+  \caption{\textbf{The Qwen3-32B value axis generalizes to held-out criteria.}
+\textbf{(a)} Held-out AUROC highest in middle-to-late layers,  peaking at layer 49 .
+\textbf{(b)} Axis directions per layer are  similar in the middle-to-late layers; early and late directions are nearly orthogonal.}
+  \label{fig:probe_eval_32b}
+\end{figure}
+
+
+Of 200 generated trajectories, [FILL: n excluded] were excluded as infrastructure failures and regenerated, leaving [NUM] analyzed; exclusion causes are listed in Appendix [REF]. Qwen3-8B resolved [FILL: n resolved] of 200 trajectories ([FILL: %]), with per-stratum resolution rates of [FILL: %] (easy) and [FILL: %] (medium). [FILL: k] of 60 tasks produced mixed outcomes across seeds. Trajectory lengths ranged from [FILL] to [FILL] steps (median [FILL]); resolved trajectories terminated earlier (median [FILL]) than unresolved ones (median [FILL]), which reach the step budget in [FILL: %] of cases.
+
+%% FIG here (optional, appendix candidate): histogram of trajectory
+%% lengths split by outcome. Only promote to main text if the length
+%% asymmetry matters for interpreting position bins.
+
+\subsection{Final-Step Transfer}
+% Purpose: the gate result. One number, one figure.
+
+At the final step, the frozen axis [BRANCH:
+A: separates resolved from unresolved trajectories with AUROC [FILL] [CI], exceeding the majority-class baseline of [FILL].
+B: separates outcomes weakly, AUROC [FILL] [CI] against a baseline of [FILL], with the confidence interval [FILL: excluding/including] the baseline.
+C: does not separate outcomes: AUROC [FILL] [CI] against a baseline of [FILL], with the interval including the baseline.]
+The task-level permutation test yields $p = $ [FILL]. The final-token robustness readout gives AUROC [FILL] [CI], [FILL: consistent with / diverging from] the token-mean readout.
+
+%% FIG here (MAIN, Figure 3): final-step projection distributions,
+%% resolved vs. unresolved. Same plot family as the de-risk probe's
+%% final_step_separation.png but with real n and CI annotation.
+%% Caption must state the takeaway, e.g. "the frozen axis [does /
+%% does not] separate outcomes at the trajectory's most resolved
+%% point."
+
+\subsection{Trajectory Evolution}
+% Purpose: when does separation appear?
+
+Across relative positions, separation [BRANCH:
+A: emerges by the [FILL: bin] bin and strengthens toward the trajectory's end, with per-bin AUROC rising from [FILL] to [FILL].
+B: is confined to [FILL: late bins / specific bins], with AUROC of [FILL] at [FILL: position] but no separation earlier.
+C: does not exceed the baseline at any position; per-bin AUROCs range from [FILL] to [FILL], all with intervals including the baseline.]
+The qualitative pattern is stable across bin counts from 4 to 8 (Appendix [REF]).
+
+%% FIG here (MAIN, Figure 4 — likely the paper's headline figure):
+%% mean projection (or per-bin AUROC) vs. relative position, resolved
+%% and unresolved curves with CI bands. This is the figure the
+%% abstract's claim rests on. Caption takeaway: where the curves
+%% [diverge / fail to diverge].
+
+\subsection{Layer Localization}
+% Purpose: is the signal where it was single-turn?
+
+[BRANCH:
+A/B: Transfer separation is strongest at layers [FILL], [FILL: matching / shifted from] the layers carrying the single-turn signal. Separation at the primary layer [FILL: is / is not] representative of the best transferring layer.
+C: No layer exceeds the baseline; the layer sweep shows AUROCs of [FILL: range] across all [FILL: n layers] layers, indicating the absence of separation is not an artifact of the pre-registered layer choice.]
+Held-out generalization across trajectories held out from layer selection gives AUROC [FILL] [CI].
+
+%% FIG here (MAIN or appendix depending on space, Figure 5): AUROC
+%% vs. layer index, with the single-turn reconstruction curve overlaid
+%% for comparison. If space is tight, main text keeps only this
+%% overlay; per-position-per-layer grid goes to appendix.
+
+\subsection{Internal Signal versus Verbalized Confidence}
+% Purpose: the comparison. Both signals, same outcomes, same positions.
+
+The agent's elicited probability of success predicts the eventual outcome with AUROC [FILL] [CI] at the final step and [FILL: range] across positions. [FILL: Optional descriptive: mean elicited probability on unresolved trajectories was [FILL], vs. an actual resolution rate of [FILL: %], consistent with the overconfidence reported by Kaddour et al.] [BRANCH:
+A: The internal projection outperforms the verbalized estimate at [FILL: all / late / early] positions, by [FILL] AUROC points at [FILL: position], indicating the internal state carries outcome information beyond what the agent reports.
+B: The two signals perform comparably ([FILL] vs [FILL] at the final step); the internal state does not carry measurable outcome information beyond the agent's own report.
+C: Neither signal separates outcomes; the comparison is uninformative in the absence of a transferring internal signal, and we report it for completeness.]
+
+%% FIG here (MAIN if outcome A, appendix otherwise, Figure 6): two
+%% curves on one plot — internal-projection AUROC and verbalized-
+%% estimate AUROC vs. relative position, shared CI style. If the
+%% logprob baseline is added, third curve here and one sentence in
+%% text: "A logprob baseline following [agentstop cite] achieves
+%% [FILL], [FILL: below / comparable to] the internal signal."
+
+\subsection{Fitted-Probe Reference}
+% Purpose: decodability ceiling; interprets the frozen result.
+
+Fitted probes achieve [FILL: peak AUROC] [CI] at layer [FILL], position [FILL], under task-level cross-validation; the full layer-by-position grid is given in Appendix [REF]. [BRANCH:
+A: The frozen axis reaches [FILL: %] of the fitted reference at the primary layer, indicating the original representation accounts for [FILL: most / part] of the decodable outcome information.
+B: The frozen axis recovers [FILL] of the fitted reference's separation, indicating outcome information is decodable but only partially aligned with the original direction.
+C: Fitted probes [FILL: do / do not] separate outcomes where the frozen axis does not. [If DO: outcome information is present in agentic activations but not along the original axis — the representation, not the information, fails to transfer. If DO NOT: outcome information is not linearly decodable from these activations at all, a stronger null than axis non-transfer alone.]]
+
+%% TABLE here (MAIN, Table 2): compact 2x2-style summary — frozen vs
+%% fitted AUROC at final step and best position, with CIs. This table
+%% IS the four-way interpretation from the Method section, so its
+%% caption should name which of the four cases the data lands in.
+
+\subsection{Within-Task Contrast}
+% Purpose: dynamics vs. static difficulty.
+
+Restricting to the [FILL: k] mixed-outcome tasks, resolved and unresolved trajectories of the same task [BRANCH:
+A: remain separated (AUROC [FILL] [CI]), indicating the signal tracks trajectory dynamics rather than static task difficulty.
+B: are separated more weakly than in the pooled analysis ([FILL] vs [FILL]), suggesting part of the pooled separation reflects task identity rather than trajectory dynamics.
+C: are not separated, consistent with the absence of a pooled signal.]
+As noted in Section [REF], mixed-outcome tasks are a non-random, intermediate-difficulty subset, and this contrast is interpreted within that scope.
+
+%% FIG here (optional, appendix): paired per-task projection plot —
+%% each mixed task as one line pair (resolved vs unresolved mean
+%% projection). Promote to main text only if outcome A and striking.
+
+% =====================================================================
+% NOTES FOR US (delete before submission):
+%
+% FIGURE BUDGET at workshop length: Figures 3 (final-step) and 4
+% (evolution) are non-negotiable main text. Figure 5 (layers) and the
+% Table 2 (frozen-vs-fitted) fight for the remaining main-text slot;
+% Figure 6 goes main ONLY under outcome A (it becomes the headline
+% "knows more than it says" figure). Everything else → appendix.
+% Total main-text: ~3 figures + 1 table on top of the method
+% schematic + config table. That is already a full workshop budget.
+%
+% ORDERING NOTE: subsections mirror the Method component order, so a
+% reviewer can map result → procedure one-to-one. Do not reorder for
+% drama; the discipline reads better.
+%
+% BRANCH DISCIPLINE: pick ONE branch per subsection and DELETE the
+% others — a leftover branch marker in a submitted PDF is fatal.
+% Grep for "BRANCH" and "FILL" before any compile that leaves the
+% machine.
+%
+% CONSISTENCY WITH INTRO: whichever branches are selected here must
+% match the [FINDING] skeleton chosen in introduction_workshop.tex
+% (A/B/C there = A/B/C here). One source of truth: fill Results
+% first, then the intro from Results.
+%
+% STATS REMINDERS (already promised in Method — Results must honor):
+% - every AUROC with 95% BCa CI, task-level bootstrap
+% - majority-class baseline stated numerically once n_resolved known
+% - permutation p for headline separations only
+% - analyzed-n and exclusion counts in 7.1 (this satisfies the
+%   Method's "reported in Section [REF]" promise — set that \ref to
+%   this subsection's label)
+%
+% LABELS TO CREATE: \label{sec:results} + per-subsection labels;
+% wire the Method section's two [REF]s here and to the appendix.
+% =====================================================================
+
+
+\end{document}
+
+
+
+
+Construction of a Qwen3-32B value axis (thinking ON).
+Following Jiang et al.’s ICRL difference-in-means recipe, we construct a value axis on Qwen3-32B with thinking enabled, matching our Stage‑2 trajectory mode. On 150 held-out ICRL conversations, held-out token AUROC rises through mid–late layers, peaks at layer 49 (AUROC = 0.872), with similarly strong separation at layers 45–50 (all ≳ 0.86), then declines toward the final layers (Figure X) — the same qualitative mid-depth emergence pattern as the original report, at a lower absolute ceiling than their Qwen3-8B 0.95+ result. We fix layer 49 as the primary layer for all subsequent analyses.
+
+
+
+On 150 held-out ICRL conversations, token AUROC rises through mid–late layers, peaking at layer 49 with AUROC = 0.872, with similarly strong separation at layers 45–50, then declines toward the final layers (Figure 1) — the same qualitative mid-depth emergence pattern as the original report, at a lower absolute ceiling than their Qwen3-8B 0.95+ result. We fix layer 49 as the primary layer for all subsequent analyses.
+
+
+
+
+Subsection	Figure/Table	Status	Content
+Method (schematic)	method_schematic.tex	Main	Construction → frozen → transfer pipeline
+Experimental Setup	config_table.tex	Main	Model/scaffold/tasks/analysis config
+7.1 Reconstruction & Data Overview	trajectory-length histogram	Appendix candidate	Length distribution by outcome — promote only if the length asymmetry matters for interpreting position bins
+7.2 Final-Step Transfer	projection distributions, resolved vs. unresolved	Main (non-negotiable)	The gate result — final-step separation with CI
+7.3 Trajectory Evolution	separation/projection vs. relative position	Main (likely headline)	Your abstract's central claim rests on this curve
+7.4 Layer Localization	AUROC vs. layer, with single-turn curve overlaid	Main or appendix — competes with the fitted-probe table for the last main slot	Shows where transfer is strongest vs. where the original signal lived
+7.5 Internal vs. Verbalized	internal-projection AUROC and verbalized-estimate AUROC vs. position (± logprob baseline as a third curve)	Main only if outcome A (axis beats verbalized confidence); appendix otherwise	The "knows more than it says" figure
+7.6 Fitted-Probe Reference	frozen-vs-fitted summary table	Main — this is the one competing with 7.4's figure	Interprets the four-way frozen/fitted outcome
+7.7 Within-Task Contrast	paired per-task projection lines (resolved vs. unresolved, same task)	Appendix, promote only if outcome A and visually striking	The confound-knockout visual
