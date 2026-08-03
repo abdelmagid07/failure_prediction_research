@@ -190,7 +190,13 @@ class ActivationSink:
 
     def save(self, path: Path) -> None:
         """Write activations atomically (tmp + replace) so a mid-write failure
-        cannot corrupt the only on-disk checkpoint."""
+        cannot corrupt the only on-disk checkpoint.
+
+        Temp path must end in ``.npz`` — numpy appends ``.npz`` otherwise
+        (e.g. ``foo.npz.tmp`` → ``foo.npz.tmp.npz``), which breaks replace.
+        """
+        import shutil
+
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         hidden = self._vecs[0].shape[0] if self._vecs else 0
@@ -199,9 +205,12 @@ class ActivationSink:
             if self._vecs
             else np.zeros((0, hidden), dtype=np.float16)
         )
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        if tmp.exists():
-            tmp.unlink()
+        # Must end with .npz so np.savez_compressed does not append another .npz
+        tmp = path.with_name(path.stem + ".tmp.npz")
+        stale = path.with_name(path.name + ".tmp.npz")  # leftover from older buggy path
+        for p in (tmp, stale):
+            if p.exists():
+                p.unlink()
         try:
             np.savez_compressed(
                 tmp,
@@ -214,7 +223,10 @@ class ActivationSink:
                 rel_pos=np.array(self.rel_pos, dtype=np.float64),
                 layer=np.array(self.layer, dtype=np.int64),
             )
-            tmp.replace(path)
+            # Drive FUSE: os.replace can fail; shutil.move is more reliable
+            if path.exists():
+                path.unlink()
+            shutil.move(str(tmp), str(path))
         except Exception:
             if tmp.exists():
                 tmp.unlink(missing_ok=True)
