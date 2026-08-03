@@ -189,6 +189,9 @@ class ActivationSink:
         self.layer.append(int(layer))
 
     def save(self, path: Path) -> None:
+        """Write activations atomically (tmp + replace) so a mid-write failure
+        cannot corrupt the only on-disk checkpoint."""
+        path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         hidden = self._vecs[0].shape[0] if self._vecs else 0
         activations = (
@@ -196,17 +199,26 @@ class ActivationSink:
             if self._vecs
             else np.zeros((0, hidden), dtype=np.float16)
         )
-        np.savez_compressed(
-            path,
-            activations=activations,
-            trajectory_id=np.array(self.trajectory_id),
-            task_id=np.array(self.task_id),
-            seed=np.array(self.seed, dtype=np.int64),
-            outcome=np.array(self.outcome, dtype=np.int64),
-            step_index=np.array(self.step_index, dtype=np.int64),
-            rel_pos=np.array(self.rel_pos, dtype=np.float64),
-            layer=np.array(self.layer, dtype=np.int64),
-        )
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        if tmp.exists():
+            tmp.unlink()
+        try:
+            np.savez_compressed(
+                tmp,
+                activations=activations,
+                trajectory_id=np.array(self.trajectory_id),
+                task_id=np.array(self.task_id),
+                seed=np.array(self.seed, dtype=np.int64),
+                outcome=np.array(self.outcome, dtype=np.int64),
+                step_index=np.array(self.step_index, dtype=np.int64),
+                rel_pos=np.array(self.rel_pos, dtype=np.float64),
+                layer=np.array(self.layer, dtype=np.int64),
+            )
+            tmp.replace(path)
+        except Exception:
+            if tmp.exists():
+                tmp.unlink(missing_ok=True)
+            raise
         print(f"Wrote {activations.shape[0]} activation vectors to {path}", flush=True)
 
     @classmethod
