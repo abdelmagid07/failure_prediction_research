@@ -235,19 +235,29 @@ class ActivationSink:
 
     @classmethod
     def load(cls, path: Path) -> "ActivationSink":
-        """Resume from a previously written activations dump."""
+        """Resume from a previously written activations dump.
+
+        Prefer loading from local disk (e.g. ``/content/...``), not Google Drive
+        FUSE — a multi-GB ``np.load`` over Drive can hang for tens of minutes
+        with no output. Prints progress so Colab does not look frozen.
+        """
+        path = Path(path)
+        print(f"Loading activations from {path} ...", flush=True)
         data = np.load(path, allow_pickle=False)
         sink = cls()
-        acts = data["activations"]
-        for i in range(acts.shape[0]):
-            sink._vecs.append(np.asarray(acts[i], dtype=np.float16))
-            sink.trajectory_id.append(str(data["trajectory_id"][i]))
-            sink.task_id.append(str(data["task_id"][i]))
-            sink.seed.append(int(data["seed"][i]))
-            sink.outcome.append(int(data["outcome"][i]))
-            sink.step_index.append(int(data["step_index"][i]))
-            sink.rel_pos.append(float(data["rel_pos"][i]))
-            sink.layer.append(int(data["layer"][i]))
+        acts = np.asarray(data["activations"], dtype=np.float16)
+        n = int(acts.shape[0])
+        print(f"  activations shape={acts.shape}; binding metadata...", flush=True)
+        # Bulk materialize — avoid a Python loop over every row for metadata.
+        sink._vecs = [acts[i] for i in range(n)]
+        sink.trajectory_id = [str(x) for x in np.asarray(data["trajectory_id"]).tolist()]
+        sink.task_id = [str(x) for x in np.asarray(data["task_id"]).tolist()]
+        sink.seed = [int(x) for x in np.asarray(data["seed"]).tolist()]
+        sink.outcome = [int(x) for x in np.asarray(data["outcome"]).tolist()]
+        sink.step_index = [int(x) for x in np.asarray(data["step_index"]).tolist()]
+        sink.rel_pos = [float(x) for x in np.asarray(data["rel_pos"]).tolist()]
+        sink.layer = [int(x) for x in np.asarray(data["layer"]).tolist()]
+        print(f"  loaded {n} activation rows", flush=True)
         return sink
 
     def drop_trajectory(self, trajectory_id: str) -> None:
@@ -381,6 +391,44 @@ def extract_rows_for_trajectory(
     return rows
 
 
+def _mirror_checkpoint(
+    *,
+    output_path: Path,
+    activations_npz: Path | None,
+    mirror_output: Path | None,
+    mirror_activations: Path | None,
+) -> None:
+    """Copy local checkpoints to a durable mirror (e.g. Google Drive)."""
+    import shutil
+
+    def _copy_replace(src: Path, dst: Path) -> None:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.stem + ".mirror_tmp" + dst.suffix)
+        if dst.suffix == ".npz":
+            tmp = dst.with_name(dst.stem + ".mirror_tmp.npz")
+        if tmp.exists():
+            tmp.unlink()
+        shutil.copy2(src, tmp)
+        if dst.exists():
+            dst.unlink()
+        shutil.move(str(tmp), str(dst))
+
+    if mirror_output is not None and output_path.exists():
+        _copy_replace(output_path, mirror_output)
+        print(f"    mirrored parquet -> {mirror_output}", flush=True)
+    if (
+        mirror_activations is not None
+        and activations_npz is not None
+        and activations_npz.exists()
+    ):
+        _copy_replace(activations_npz, mirror_activations)
+        print(
+            f"    mirrored npz -> {mirror_activations} "
+            f"({round(mirror_activations.stat().st_size / 1e6, 1)} MB)",
+            flush=True,
+        )
+
+
 def run(
     traj_dir: Path,
     *,
@@ -393,6 +441,9 @@ def run(
     output_path: Path,
     check_thinking: bool = True,
     activations_npz: Path | None = None,
+    mirror_output: Path | None = None,
+    mirror_activations: Path | None = None,
+    mirror_every: int = 10,
 ) -> pd.DataFrame:
     records = load_trajectories_from_dir(traj_dir)
     if not records:
@@ -447,13 +498,33 @@ def run(
             )
 
     fidelity_state: dict = {"checked": False}
+    n_total = len(records)
+    n_pending = sum(1 for r in records if r.trajectory_id not in done_ids)
+    print(
+        f"Progress: {len(done_ids)}/{n_total} already done, "
+        f"{n_pending} remaining to project",
+        flush=True,
+    )
+    if mirror_output is not None or mirror_activations is not None:
+        print(
+            f"Drive/durable mirror every {mirror_every} trajs "
+            f"(output={mirror_output}, activations={mirror_activations})",
+            flush=True,
+        )
+    n_skipped = 0
     for record in records:
         tid = record.trajectory_id
+        n_done = len(done_ids)
+        n_left = n_total - n_done
         if tid in done_ids:
-            print(f"  {tid}: skip (already projected)", flush=True)
+            n_skipped += 1
             continue
+        if n_skipped:
+            print(f"  (skipped {n_skipped} already-done trajs)", flush=True)
+            n_skipped = 0
         print(
-            f"  {tid}: {record.n_steps} steps, outcome={record.outcome}",
+            f"  [{n_done}/{n_total} done | {n_left} left] "
+            f"{tid}: {record.n_steps} steps, outcome={record.outcome}",
             flush=True,
         )
         if activation_sink is not None:
@@ -472,6 +543,8 @@ def run(
         )
         all_rows.extend(rows)
         done_ids.add(tid)
+        n_done = len(done_ids)
+        n_left = n_total - n_done
         print(f"    -> {len(rows)} projection rows", flush=True)
 
         # Checkpoint after each traj so Colab OOMs / disconnects don't lose work.
@@ -479,13 +552,40 @@ def run(
         df.to_parquet(output_path, index=False)
         if activation_sink is not None:
             activation_sink.save(activations_npz)
-        print(f"    checkpointed {len(df)} rows -> {output_path}", flush=True)
+        print(
+            f"    checkpointed {len(df)} rows -> {output_path} "
+            f"[{n_done}/{n_total} done | {n_left} left]",
+            flush=True,
+        )
+        if (
+            mirror_every > 0
+            and (mirror_output is not None or mirror_activations is not None)
+            and n_done % mirror_every == 0
+        ):
+            _mirror_checkpoint(
+                output_path=output_path,
+                activations_npz=activations_npz,
+                mirror_output=mirror_output,
+                mirror_activations=mirror_activations,
+            )
+
+    if n_skipped:
+        print(f"  (skipped {n_skipped} already-done trajs)", flush=True)
 
     df = pd.DataFrame(all_rows)
     print(f"Wrote {len(df)} rows to {output_path}", flush=True)
 
     if activation_sink is not None:
         activation_sink.save(activations_npz)
+
+    if mirror_output is not None or mirror_activations is not None:
+        print("Final mirror to durable storage...", flush=True)
+        _mirror_checkpoint(
+            output_path=output_path,
+            activations_npz=activations_npz,
+            mirror_output=mirror_output,
+            mirror_activations=mirror_activations,
+        )
 
     return df
 
@@ -525,6 +625,25 @@ def main():
         default=None,
         help="If set, also dump per-step mean-pooled activation vectors per layer "
         "to this .npz (consumed by the fitted-probe stage).",
+    )
+    ap.add_argument(
+        "--mirror-output",
+        type=Path,
+        default=None,
+        help="Optional durable copy path for the projections parquet (e.g. Google Drive).",
+    )
+    ap.add_argument(
+        "--mirror-activations",
+        type=Path,
+        default=None,
+        help="Optional durable copy path for the activations npz (e.g. Google Drive).",
+    )
+    ap.add_argument(
+        "--mirror-every",
+        type=int,
+        default=10,
+        help="Copy to --mirror-* every N newly completed trajs (also mirrors at end). "
+        "Set 0 to disable periodic mirror (final mirror still runs if paths set).",
     )
     ap.add_argument("--model", default=defaults["model"])
     ap.add_argument("--axis-path", type=Path, default=defaults["axis_path"])
@@ -583,6 +702,9 @@ def main():
         output_path=args.output,
         check_thinking=not args.no_thinking_check,
         activations_npz=args.activations_npz,
+        mirror_output=args.mirror_output,
+        mirror_activations=args.mirror_activations,
+        mirror_every=args.mirror_every,
     )
 
 
