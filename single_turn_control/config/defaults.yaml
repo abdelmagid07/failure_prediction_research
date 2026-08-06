@@ -1,0 +1,30 @@
+# METHOD.tex "Single-turn coding control": frozen Qwen3-32B axis vs. DebugBench
+# correctness. Mirrors stage1/config/presets/qwen3_32b.yaml (same model, same
+# thinking mode as the axis construction) and stage2's readout convention
+# (mean-over-tokens primary, final-token robustness).
+model: Qwen/Qwen3-32B
+n_layers: 64
+hidden_dim: 5120
+enable_thinking: true
+dtype: bfloat16
+
+# Frozen axis (Stage 1 output; never refit here).
+axis_path: ../stage1/data/value_axis_32b.npy
+axis_manifest_path: ../stage1/data/axis_manifest_32b.json
+# Fallback if the manifest is missing/unreadable; the manifest's
+# "primary_layer" (49) takes precedence when present.
+primary_layer: 49
+
+# Dataset: Rtian/DebugBench on Hugging Face, filtered to language == "Python".
+dataset_name: Rtian/DebugBench
+language: Python
+# Preliminary trust-building check, not the paper headline number — a random
+# seeded subset, not the original paper's full 225.
+n_problems: 150
+seed: 42
+variants: [buggy, syntax_error, shuffled, obfuscated]
+
+# Statistics (stage2.analyze.stats): task-level BCa bootstrap + block
+# permutation, same machinery and defaults as the transfer test.
+n_boot: 1000
+n_perm: 2000
