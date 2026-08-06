@@ -37,7 +37,10 @@ def load_debugbench(
     """
     from datasets import load_dataset
 
-    ds = load_dataset(dataset_name, split="train")
+    # DebugBench's only split is "test" (there is no train/val split, despite
+    # some secondary sources describing it as split-less) — confirmed by the
+    # dataset builder's own error listing available splits.
+    ds = load_dataset(dataset_name, split="test")
 
     problems: list[Problem] = []
     seen_slugs: set[str] = set()
