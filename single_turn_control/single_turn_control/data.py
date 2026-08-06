@@ -25,7 +25,7 @@ class Problem:
 def load_debugbench(
     *,
     dataset_name: str = "Rtian/DebugBench",
-    language: str = "Python",
+    language: str = "python3",
     n_problems: int | str = 150,
     seed: int = 42,
 ) -> list[Problem]:
@@ -34,6 +34,13 @@ def load_debugbench(
     ``n_problems="all"`` keeps every filtered instance; an int takes a seeded
     random sample (without replacement) of that size, or every instance if
     fewer are available.
+
+    The dataset's ``language`` field is a lowercase short code — ``cpp``,
+    ``java``, ``python3`` (verified directly against the loaded dataset;
+    *not* the title-case ``"Python"`` implied by secondary descriptions of
+    the dataset card, which was wrong once already here). Matching is
+    case-insensitive against that code as a defensive margin, not a promise
+    it covers every possible variant.
     """
     from datasets import load_dataset
 
@@ -42,10 +49,12 @@ def load_debugbench(
     # dataset builder's own error listing available splits.
     ds = load_dataset(dataset_name, split="test")
 
+    language_lower = language.lower()
     problems: list[Problem] = []
     seen_slugs: set[str] = set()
     for row in ds:
-        if row.get("language") != language:
+        row_language = row.get("language")
+        if not row_language or row_language.lower() != language_lower:
             continue
         slug = row.get("slug")
         solution = row.get("solution")

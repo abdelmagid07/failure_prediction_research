@@ -15,16 +15,20 @@ axis_manifest_path: ../stage1/data/axis_manifest_32b.json
 # "primary_layer" (49) takes precedence when present.
 primary_layer: 49
 
-# Dataset: Rtian/DebugBench on Hugging Face, filtered to language == "Python".
+# Dataset: Rtian/DebugBench on Hugging Face, filtered to language == "python3"
+# (the dataset's actual lowercase short code — verified against the loaded
+# dataset directly, not assumed from its card description).
 dataset_name: Rtian/DebugBench
-language: Python
+language: python3
 # Preliminary trust-building check, not the paper headline number — a random
 # seeded subset, not the original paper's full 225.
 n_problems: 150
 seed: 42
 variants: [buggy, syntax_error, shuffled, obfuscated]
 
-# Statistics (stage2.analyze.stats): task-level BCa bootstrap + block
-# permutation, same machinery and defaults as the transfer test.
+# Statistics: stage2.analyze.stats.auroc_with_ci (task-level BCa bootstrap)
+# + single_turn_control.stats_local's within-task label permutation (not
+# stage2's block permutation — degenerate for this matched-pair design; see
+# stats_local.py's docstring).
 n_boot: 1000
 n_perm: 2000
