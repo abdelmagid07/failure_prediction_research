@@ -20,7 +20,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from single_turn_control.config import load_defaults
 from single_turn_control.paths import data_file
-from single_turn_control.project import run_forward
+from single_turn_control.project import aggregate_stats, diff_window_mask, run_forward
 from stage1.common.hooks import unit_direction
 
 
@@ -60,34 +60,63 @@ def rows_for_problem(
     directions: dict[int, torch.Tensor],
     device,
 ) -> list[dict]:
+    """Two rows per (variant, layer): the diff window is pair-specific (original's
+    window against ``shuffled`` differs from its window against ``buggy``), so
+    "original" is no longer a single shared row — it's recomputed per variant
+    pairing, keeping ``proj_mean``/``proj_final`` identical across pairings but
+    letting ``proj_window_mean`` vary correctly.
+    """
     rows: list[dict] = []
-    conditions = {"original": entry["original"], **entry["variants"]}
-    for condition, payload in conditions.items():
-        per_layer = run_forward(
-            model,
-            tokenizer,
-            payload["full_text"],
-            payload["code_char_start"],
-            payload["code_char_end"],
-            n_layers=n_layers,
-            directions=directions,
-            device=device,
+
+    original = run_forward(
+        model, tokenizer,
+        entry["original"]["full_text"],
+        entry["original"]["code_char_start"], entry["original"]["code_char_end"],
+        n_layers=n_layers, directions=directions, device=device,
+    )
+    if original is None:
+        print(f"    SKIP {entry['slug']}/original: code span not found in tokenization",
+              flush=True)
+        return rows
+
+    for variant, payload in entry["variants"].items():
+        corrupted = run_forward(
+            model, tokenizer,
+            payload["full_text"], payload["code_char_start"], payload["code_char_end"],
+            n_layers=n_layers, directions=directions, device=device,
         )
-        if per_layer is None:
-            print(f"    SKIP {entry['slug']}/{condition}: code span not found in tokenization",
+        if corrupted is None:
+            print(f"    SKIP {entry['slug']}/{variant}: code span not found in tokenization",
                   flush=True)
             continue
-        for layer, stats in per_layer.items():
+
+        mask_orig, mask_corr = diff_window_mask(original.token_ids, corrupted.token_ids)
+        if not mask_orig.any() and not mask_corr.any():
+            print(f"    SKIP {entry['slug']}/{variant}: no token-level diff found",
+                  flush=True)
+            continue
+
+        for layer in directions:
+            whole_orig = aggregate_stats(original.proj_by_layer[layer])
+            whole_corr = aggregate_stats(corrupted.proj_by_layer[layer])
+            window_orig = aggregate_stats(original.proj_by_layer[layer], mask_orig)
+            window_corr = aggregate_stats(corrupted.proj_by_layer[layer], mask_corr)
+
             rows.append({
-                "slug": entry["slug"],
-                "category": entry.get("category", ""),
-                "subtype": entry.get("subtype", ""),
-                "condition": condition,
-                "outcome": 1 if condition == "original" else 0,
-                "layer": layer,
-                "proj_mean": stats["mean"],
-                "proj_final": stats["final"],
-                "n_tokens": stats["n_tokens"],
+                "slug": entry["slug"], "category": entry.get("category", ""),
+                "subtype": entry.get("subtype", ""), "variant": variant, "side": "original",
+                "outcome": 1, "layer": layer,
+                "proj_mean": whole_orig["mean"], "proj_final": whole_orig["final"],
+                "proj_window_mean": window_orig["mean"],
+                "n_tokens": whole_orig["n_tokens"], "n_window_tokens": window_orig["n_tokens"],
+            })
+            rows.append({
+                "slug": entry["slug"], "category": entry.get("category", ""),
+                "subtype": entry.get("subtype", ""), "variant": variant, "side": "corrupted",
+                "outcome": 0, "layer": layer,
+                "proj_mean": whole_corr["mean"], "proj_final": whole_corr["final"],
+                "proj_window_mean": window_corr["mean"],
+                "n_tokens": whole_corr["n_tokens"], "n_window_tokens": window_corr["n_tokens"],
             })
     return rows
 

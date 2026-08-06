@@ -51,15 +51,40 @@ Colab: [`notebooks/single_turn_control_colab.ipynb`](notebooks/single_turn_contr
 runs all three in sequence on an A100 (same shape as
 `stage2/notebooks/project_full_32b_colab.ipynb`).
 
+## Readouts
+
+Three, in increasing faithfulness to the anchor paper (all computed in the
+same GPU pass, no extra cost):
+
+- `proj_mean` — mean cosine over the **whole** code span. Ours; empirically
+  confounded by a positional ramp (projection climbs across the span
+  regardless of correctness — confirmed axis-specific, not a generic
+  artifact, via a random-direction control) that has nothing to do with
+  correctness, so this is **not** a faithful reproduction of the anchor
+  paper's number despite being the initial "primary" readout.
+- `proj_final` — the single last code token. A rough, cheap proxy that
+  happens to track direction reasonably well since it lands near the end of
+  the ramp, but isn't a principled readout on its own.
+- `proj_window_mean` — the anchor paper's actual metric: "the average
+  value-axis projection on the assistant tokens after the bug" (og_paper.tex,
+  "Correlation with code correctness"). Diffs original vs. corrupted code at
+  the token level and averages only over `[diff_start, diff_end + 10)` per
+  diverging region, unioned across regions — mirrors the reference
+  implementation's `after10_mean`. **Pair-specific**: original's window
+  differs depending on which variant it's compared against, so
+  `run_control.py` emits one `(original, corrupted)` row pair per variant
+  rather than a single shared "original" row (see `rows_for_problem`'s
+  docstring). This is the metric to trust for comparing against the paper.
+
 ## Statistics
 
 Reuses `stage2.analyze.stats.auroc_with_ci` — the same AUROC + task-level BCa
 95% CI machinery as the agentic transfer test (METHOD.tex "Statistical
-reporting"), with the DebugBench problem `slug` as the resampling unit. Each
-problem contributes an `outcome=1` (original) row and an `outcome=0`
-(corrupted) row per variant it has; the frozen axis's convention (axis points
-from failing toward succeeding) means `outcome=1` is expected to score
-higher if the axis transfers.
+reporting"), with the DebugBench problem `slug` as the resampling unit. Every
+`variant` contributes one `outcome=1` (`side="original"`) row and one
+`outcome=0` (`side="corrupted"`) row per layer; the frozen axis's convention
+(axis points from failing toward succeeding) means `outcome=1` is expected to
+score higher if the axis transfers.
 
 The permutation test is **not** `stage2.analyze.stats.permutation_test_auroc`.
 That one reassigns whole outcome-pattern *blocks* between tasks — correct
@@ -97,7 +122,8 @@ single_turn_control/
     corrupt.py            the three reimplemented corruption functions
     render.py              chat-template rendering + code char offsets
     prepare.py (CLI)       CPU: data + corrupt + render -> problems_manifest.json
-    project.py              one forward pass -> per-layer projections
+    project.py              one forward pass -> raw per-token projections;
+                             diff-window mask + mean/final/window aggregation
     run_control.py (CLI)    GPU: problems_manifest.json -> projections.parquet
     analyze.py (CLI)        CPU: projections.parquet -> report.json + plot
   notebooks/              Colab A100 run

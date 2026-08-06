@@ -3,7 +3,9 @@
 
 Mirrors ``stage2/tests/fixtures/mock_projections.py``: skips the GPU forward
 pass entirely and writes rows in exactly the schema ``run_control.py``
-produces, so ``analyze.py`` can be exercised end to end offline.
+produces (``variant``/``side`` pairing, one "original" row per variant it's
+paired against — see ``run_control.py``'s ``rows_for_problem`` docstring),
+so ``analyze.py`` can be exercised end to end offline.
 """
 
 from __future__ import annotations
@@ -26,27 +28,37 @@ def mock_projections(
     signal_at_primary: float = 0.6,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Synthetic rows: separable at ``primary_layer``, near-chance elsewhere."""
+    """Synthetic rows: separable at ``primary_layer``, near-chance elsewhere.
+
+    ``proj_window_mean`` is a noisier version of ``proj_mean`` (same signal,
+    more spread) so tests can assert it's *present and directionally
+    sane* without claiming to model the real diff-window statistic's exact
+    distribution.
+    """
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
     for p in range(n_problems):
         slug = f"mock-problem-{p:03d}"
         for layer in range(n_layers):
             gap = signal_at_primary if layer == primary_layer else 0.0
-            orig = rng.normal(0.1 + gap, 0.15)
-            rows.append({
-                "slug": slug, "category": "mock", "subtype": "mock",
-                "condition": "original", "outcome": 1, "layer": layer,
-                "proj_mean": float(orig), "proj_final": float(orig + rng.normal(0, 0.1)),
-                "n_tokens": int(rng.integers(20, 80)),
-            })
             for variant in VARIANTS:
+                orig = rng.normal(0.1 + gap, 0.15)
                 corr = rng.normal(0.1, 0.15)
                 rows.append({
                     "slug": slug, "category": "mock", "subtype": "mock",
-                    "condition": variant, "outcome": 0, "layer": layer,
-                    "proj_mean": float(corr), "proj_final": float(corr + rng.normal(0, 0.1)),
+                    "variant": variant, "side": "original", "outcome": 1, "layer": layer,
+                    "proj_mean": float(orig), "proj_final": float(orig + rng.normal(0, 0.1)),
+                    "proj_window_mean": float(orig + rng.normal(0, 0.2)),
                     "n_tokens": int(rng.integers(20, 80)),
+                    "n_window_tokens": int(rng.integers(5, 20)),
+                })
+                rows.append({
+                    "slug": slug, "category": "mock", "subtype": "mock",
+                    "variant": variant, "side": "corrupted", "outcome": 0, "layer": layer,
+                    "proj_mean": float(corr), "proj_final": float(corr + rng.normal(0, 0.1)),
+                    "proj_window_mean": float(corr + rng.normal(0, 0.2)),
+                    "n_tokens": int(rng.integers(20, 80)),
+                    "n_window_tokens": int(rng.integers(5, 20)),
                 })
 
     df = pd.DataFrame(rows)

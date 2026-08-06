@@ -35,7 +35,9 @@ def test_headline_report_separates_at_primary_layer(separable_df):
         assert res["permutation_p"] < 0.05, (variant, res)
     pooled = report["pooled"]
     assert pooled["auroc"] > 0.8
-    assert pooled["n"] == 30 * (1 + len(VARIANTS))
+    # Every variant contributes its own (original, corrupted) pair now (the
+    # diff window is pair-specific) -> 2 rows per problem per variant.
+    assert pooled["n"] == 30 * len(VARIANTS) * 2
     assert pooled["permutation_p"] < 0.05, pooled
 
 
@@ -56,11 +58,20 @@ def test_layer_sweep_peaks_at_primary_layer(separable_df):
     assert int(best_layer) == PRIMARY_LAYER
 
 
-def test_majority_baseline_reflects_class_imbalance(separable_df):
+def test_majority_baseline_is_balanced(separable_df):
     report = headline_report(
         separable_df, variants=VARIANTS, primary_layer=PRIMARY_LAYER,
         score_col="proj_mean", n_boot=50, n_perm=50,
     )
-    # 1 original vs. len(VARIANTS) corrupted rows per problem -> corrupted majority.
-    expected = len(VARIANTS) / (1 + len(VARIANTS))
-    assert report["pooled"]["majority_baseline"] == pytest.approx(expected, abs=1e-6)
+    # Every variant pairing contributes exactly one original + one corrupted
+    # row -> balanced classes, majority baseline == 0.5.
+    assert report["pooled"]["majority_baseline"] == pytest.approx(0.5, abs=1e-6)
+
+
+def test_diff_window_readout_present_and_directionally_sane(separable_df):
+    report = headline_report(
+        separable_df, variants=VARIANTS, primary_layer=PRIMARY_LAYER,
+        score_col="proj_window_mean", n_boot=200, n_perm=200,
+    )
+    assert report["score_col"] == "proj_window_mean"
+    assert report["pooled"]["auroc"] > 0.7, report["pooled"]

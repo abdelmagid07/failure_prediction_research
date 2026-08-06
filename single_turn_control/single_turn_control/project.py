@@ -6,13 +6,39 @@ Reuses ``stage1.common.hooks.LayerActivationCapture`` / ``cosine_projection``
 ``per_token_cs`` hook. Layer indexing is this repo's own convention (hook
 ``model.model.layers[i]`` directly, axis row ``i`` — no off-by-one), *not*
 the reference script's ``hook_idx = probe_layer - 1``.
+
+Three readouts, in increasing faithfulness to the anchor paper:
+
+- ``mean``/``final`` (whole code span): mean over every code token, or just
+  the last one. Ours; the whole-span mean turned out to be diluted by a
+  positional ramp unrelated to correctness (confirmed via a random-direction
+  control — see project notes), so this is *not* a faithful reproduction of
+  the anchor paper's headline stat.
+- ``window`` (``diff_window_mask`` + masked mean): the anchor paper's actual
+  metric — "the average value-axis projection on the assistant tokens after
+  the bug" (og_paper.tex, "Correlation with code correctness"). Locates
+  where original and corrupted code diverge at the token level (diff, like
+  their reference script's ``after10_mean``) and averages only over
+  ``[diff_start, diff_end + radius)`` per diverging region, unioned across
+  regions. This is pair-specific — original's window differs depending on
+  which variant it's being compared against — so it's computed per
+  (original, variant) pair, not once per problem.
 """
 
 from __future__ import annotations
 
+import difflib
+from dataclasses import dataclass
+
+import numpy as np
 import torch
 
 from stage1.common.hooks import LayerActivationCapture, cosine_projection
+
+# Matches the reference script's R=10: token radius after each diverging
+# region (og_paper.tex doesn't specify the exact radius in prose; this value
+# is only in the reference implementation, code_correlation.py).
+DIFF_WINDOW_RADIUS = 10
 
 
 def code_token_span(
@@ -28,6 +54,14 @@ def code_token_span(
     return ts, te
 
 
+@dataclass
+class CodeSpanActivations:
+    """Raw (not yet aggregated) per-token result for one prefilled code span."""
+
+    token_ids: list[int]
+    proj_by_layer: dict[int, np.ndarray]  # each array shape (n_code_tokens,)
+
+
 def run_forward(
     model,
     tokenizer,
@@ -38,8 +72,8 @@ def run_forward(
     n_layers: int,
     directions: dict[int, torch.Tensor],
     device,
-) -> dict[int, dict[str, float]] | None:
-    """Per-layer {"mean": ..., "final": ..., "n_tokens": ...} over the code span.
+) -> CodeSpanActivations | None:
+    """Per-layer raw per-token cosine projections over the code span.
 
     Returns ``None`` if the code span can't be located in the tokenization
     (mirrors the reference script's skip behavior for unmapped spans).
@@ -61,13 +95,50 @@ def run_forward(
     capture.remove()
 
     code_acts = layer_acts[:, ts:te, :]  # (L, n_code_tok, H)
+    code_token_ids = enc["input_ids"][0][ts:te].tolist()
 
-    results: dict[int, dict[str, float]] = {}
-    for layer, direction in directions.items():
-        proj = cosine_projection(code_acts[layer], direction)  # (n_code_tok,)
-        results[layer] = {
-            "mean": float(proj.mean().item()),
-            "final": float(proj[-1].item()),
-            "n_tokens": int(proj.shape[0]),
-        }
-    return results
+    proj_by_layer = {
+        layer: cosine_projection(code_acts[layer], direction).numpy()
+        for layer, direction in directions.items()
+    }
+    return CodeSpanActivations(token_ids=code_token_ids, proj_by_layer=proj_by_layer)
+
+
+def diff_window_mask(
+    ids_a: list[int], ids_b: list[int], *, radius: int = DIFF_WINDOW_RADIUS
+) -> tuple[np.ndarray, np.ndarray]:
+    """Boolean masks over (ids_a, ids_b) covering the anchor paper's readout window.
+
+    Diffs the two token-id sequences (``difflib.SequenceMatcher``, matching
+    the reference implementation) and marks ``[region_start, region_end +
+    radius)`` for every non-equal opcode, unioned across regions, separately
+    per side. A zero-width change point (pure insertion/deletion) still
+    opens a window starting at that point, matching the reference's
+    ``end = e if e > s else s`` handling.
+    """
+    ops = [
+        (i1, i2, j1, j2)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ids_a, ids_b, autojunk=False).get_opcodes()
+        if tag != "equal"
+    ]
+    mask_a = np.zeros(len(ids_a), dtype=bool)
+    mask_b = np.zeros(len(ids_b), dtype=bool)
+    for i1, i2, j1, j2 in ops:
+        end_a = i2 if i2 > i1 else i1
+        mask_a[max(0, i1):min(len(ids_a), end_a + radius)] = True
+        end_b = j2 if j2 > j1 else j1
+        mask_b[max(0, j1):min(len(ids_b), end_b + radius)] = True
+    return mask_a, mask_b
+
+
+def aggregate_stats(proj: np.ndarray, mask: np.ndarray | None = None) -> dict[str, float | int]:
+    """mean/final/n_tokens over ``proj``, optionally restricted to a boolean ``mask``.
+
+    ``final`` is the last element of the selected subset — for the whole
+    span that's the code's actual last token; for a window mask it's the
+    last token inside that window, not necessarily the code's last token.
+    """
+    sel = proj[mask] if mask is not None else proj
+    if sel.size == 0:
+        return {"mean": float("nan"), "final": float("nan"), "n_tokens": 0}
+    return {"mean": float(sel.mean()), "final": float(sel[-1]), "n_tokens": int(sel.size)}

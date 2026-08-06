@@ -40,13 +40,20 @@ def load_primary_layer(manifest_path: Path, fallback: int) -> int:
 
 
 def variant_frame(df: pd.DataFrame, variant: str, layer: int, score_col: str) -> pd.DataFrame:
-    """One row per (slug, original|variant) at a fixed layer, for a single variant."""
-    sub = df[(df["layer"] == layer) & (df["condition"].isin(["original", variant]))]
+    """One (original, corrupted) row pair per slug, at a fixed layer, for one variant.
+
+    Every row in the parquet already belongs to exactly one variant pairing
+    (``run_control.py``'s ``rows_for_problem`` emits "original" once per
+    variant it's compared against, not once per problem — the diff window is
+    pair-specific), so this is just a straight filter, no "original" special
+    case needed.
+    """
+    sub = df[(df["layer"] == layer) & (df["variant"] == variant)]
     return sub[["slug", "outcome", score_col]].copy()
 
 
 def pooled_frame(df: pd.DataFrame, layer: int, score_col: str) -> pd.DataFrame:
-    """All conditions at a fixed layer (original once per slug + every variant)."""
+    """Every variant pairing at a fixed layer (each contributes one 1/0 pair)."""
     sub = df[df["layer"] == layer]
     return sub[["slug", "outcome", score_col]].copy()
 
@@ -161,6 +168,14 @@ def main():
             n_boot=args.n_boot, n_perm=args.n_perm,
         ),
     }
+    if "proj_window_mean" in df.columns:
+        # The anchor paper's actual metric: mean projection on tokens after
+        # the original/corrupted code diverges (og_paper.tex "Correlation
+        # with code correctness"), not a whole-span mean or bare final token.
+        report["diff_window"] = headline_report(
+            df, variants=args.variants, primary_layer=primary_layer,
+            score_col="proj_window_mean", n_boot=args.n_boot, n_perm=args.n_perm,
+        )
     sweep = layer_sweep(df, variants=args.variants, score_col="proj_mean")
     report["layer_sweep_auroc"] = sweep
 
@@ -171,22 +186,28 @@ def main():
     plot_path = args.output_dir / "layer_sweep.png"
     plot_layer_sweep(sweep, primary_layer, plot_path)
 
-    print(f"\nHeadline (mean-over-code-tokens, layer {primary_layer}):", flush=True)
-    for variant, res in report["primary"]["by_variant"].items():
+    def print_headline(label: str, headline: dict) -> None:
+        print(f"\n{label} (layer {primary_layer}):", flush=True)
+        for variant, res in headline["by_variant"].items():
+            print(
+                f"  {variant:<14} AUROC {res['auroc']:.3f} "
+                f"[{res['ci_low']:.3f}, {res['ci_high']:.3f}]  "
+                f"perm p={res['permutation_p']:.3f}  n={res['n']}",
+                flush=True,
+            )
+        pooled = headline["pooled"]
         print(
-            f"  {variant:<14} AUROC {res['auroc']:.3f} "
-            f"[{res['ci_low']:.3f}, {res['ci_high']:.3f}]  "
-            f"perm p={res['permutation_p']:.3f}  n={res['n']}",
+            f"  {'pooled':<14} AUROC {pooled['auroc']:.3f} "
+            f"[{pooled['ci_low']:.3f}, {pooled['ci_high']:.3f}]  "
+            f"perm p={pooled['permutation_p']:.3f}  n={pooled['n']}  "
+            f"(majority baseline {pooled['majority_baseline']:.3f})",
             flush=True,
         )
-    pooled = report["primary"]["pooled"]
-    print(
-        f"  {'pooled':<14} AUROC {pooled['auroc']:.3f} "
-        f"[{pooled['ci_low']:.3f}, {pooled['ci_high']:.3f}]  "
-        f"perm p={pooled['permutation_p']:.3f}  n={pooled['n']}  "
-        f"(majority baseline {pooled['majority_baseline']:.3f})",
-        flush=True,
-    )
+
+    print_headline("Whole-span mean", report["primary"])
+    print_headline("Final token", report["final_token_robustness"])
+    if "diff_window" in report:
+        print_headline("Diff window (anchor-paper metric)", report["diff_window"])
     print(f"\nSaved {report_path} and {plot_path}", flush=True)
 
 
